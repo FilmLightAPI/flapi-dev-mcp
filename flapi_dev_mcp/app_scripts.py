@@ -11,6 +11,7 @@ Backs check_app_script_readiness() and install_app_dependencies().
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import urllib.request
 from pathlib import Path
@@ -102,19 +103,16 @@ def check_app_script_readiness(kind: str = "both") -> dict:
         "deploy_dirs": dirs,
         "remedies": remedies,
         "workflow": [
-            "1. Make output OBSERVABLE. As the script's FIRST action, redirect its own "
-            "stdout+stderr to a known file so even import/load errors are captured: "
-            "`import sys; _l=open('~/.flapi-dev-mcp/logs/<name>.log'.replace('~',str(Path.home())),'a',buffering=1); "
-            "sys.stdout=sys.stderr=_l`. You cannot see app-script return values, so this is mandatory.",
+            "1. Have the script print(..., flush=True) what it does — you can't see return "
+            "values, so logging is how you observe it. (Its output + any load traceback go to "
+            "the app log, which get_app_script_log tails.)",
             "2. Syntax-check before deploy: managed-venv python `-m py_compile <script>`.",
             "3. Deploy: UI scripts → scripts/, server scripts → server-scripts/. Install extra deps "
             "with install_app_dependencies (managed venv), NOT install_dependencies.",
             "4. Reload: SERVER scripts → reload_app_scripts (flapid :1984). UI scripts → ask the user "
-            "to reload via Views > Scripts > (gear) > Reload Scripts (port-contended app server can't be "
-            "reloaded reliably from here), then click the menu item.",
-            "5. Verify: read the script's self-log file (native Read). For SERVER scripts you can also "
-            "get_flapi_log (the flapid console). For UI scripts, get_flapi_log will NOT have the output "
-            "(flapid = server scripts only) — rely on the self-log.",
+            "to reload via Views > Scripts > (gear) > Reload Scripts, then click the menu item.",
+            "5. Verify: UI/app scripts → get_app_script_log (the GUI's plugins.log; catches load "
+            "errors too). SERVER scripts → get_flapi_log (flapid console). Iterate.",
         ],
     }
 
@@ -178,6 +176,53 @@ def get_flapi_log(lines: int = 80) -> dict:
         return {"ok": False, "log": str(f), "error": str(e)}
     tail = text.splitlines()[-lines:]
     return {"ok": True, "log": str(f), "lines": len(tail), "text": "\n".join(tail)}
+
+
+def _gui_baselight_pid() -> str | None:
+    """PID of the running Baselight GUI desktop app (runs app scripts)."""
+    try:
+        r = subprocess.run(["ps", "-Ao", "pid=,comm="], capture_output=True, text=True, timeout=8)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in r.stdout.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[1].endswith("/Contents/MacOS/Baselight"):
+            return parts[0]
+    return None
+
+
+def _fltmpdir(pid: str) -> str | None:
+    """Read FLTMPDIR from a process's environment (value may contain spaces)."""
+    try:
+        r = subprocess.run(["ps", "eww", pid], capture_output=True, text=True, timeout=8)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"FLTMPDIR=(.*?)(?= [A-Za-z_][A-Za-z0-9_]*=)", r.stdout)
+    return m.group(1) if m else None
+
+
+def get_app_script_log(lines: int = 80) -> dict:
+    """Tail the live app-script log — `$FLTMPDIR/plugins.log`, the file the GUI's
+    Views > Scripts > (gear) > Open Log File reveals. Captures app-script output
+    AND load tracebacks. Resolves FLTMPDIR from the running Baselight GUI."""
+    pid = _gui_baselight_pid()
+    if pid is None:
+        return {"ok": False, "error": "no running Baselight GUI found — app scripts (and "
+                                       "their log) need the desktop app running"}
+    td = _fltmpdir(pid)
+    if not td:
+        return {"ok": False, "error": f"could not read FLTMPDIR from Baselight pid {pid}"}
+    log = Path(td) / "plugins.log"
+    if not log.is_file():
+        return {"ok": False, "log": str(log),
+                "error": "plugins.log not created yet — it appears once an app script loads "
+                         "(deploy a script and reload, then check again)"}
+    try:
+        text = log.read_text(errors="replace")
+    except OSError as e:
+        return {"ok": False, "log": str(log), "error": str(e)}
+    tail = text.splitlines()[-lines:]
+    return {"ok": True, "log": str(log), "lines": len(tail), "text": "\n".join(tail)}
 
 
 def install_app_dependencies(packages: list[str]) -> dict:

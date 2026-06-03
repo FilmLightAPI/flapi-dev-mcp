@@ -226,6 +226,20 @@ def reload_app_scripts(host: str = "localhost", port: int = 1984) -> dict:
 
 
 @mcp.tool()
+def get_app_script_log(lines: int = 80) -> dict:
+    """Tail the live APP/UI-script log — `$FLTMPDIR/plugins.log`.
+
+    This is the file the GUI's Views > Scripts > (gear) > Open Log File shows.
+    It captures app-script print output AND load/import tracebacks. Resolves the
+    path from the running Baselight GUI. Call after reloading a UI script (and
+    after the user clicks the menu item) to see what happened. For SERVER scripts
+    use get_flapi_log instead.
+    """
+    from flapi_dev_mcp import app_scripts
+    return app_scripts.get_app_script_log(lines)
+
+
+@mcp.tool()
 def get_flapi_log(lines: int = 80) -> dict:
     """Tail the live flapid console log — SERVER-script output and flapid errors.
 
