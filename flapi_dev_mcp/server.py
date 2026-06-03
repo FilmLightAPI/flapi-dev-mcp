@@ -128,6 +128,32 @@ def get_class_docs(class_name: str) -> dict:
     return schema.class_docs(class_name)
 
 
+@mcp.tool()
+def setup_standalone_env(reinstall_wheel: bool = False) -> dict:
+    """Create/verify the MCP-owned venv for standalone FLAPI scripts.
+
+    Stands up ~/.flapi-dev-mcp/venvs/<version>/ from the same base Python
+    Baselight uses, installs the build-matching `filmlightapi` wheel, and
+    confirms `import flapi` works. Call this before running a standalone script.
+    Separate from Baselight's app-script venvs (which it never touches).
+    Returns the venv path/interpreter and whether `import flapi` succeeds.
+    """
+    from flapi_dev_mcp import venvs
+    return venvs.setup_standalone_env(reinstall_wheel=reinstall_wheel)
+
+
+@mcp.tool()
+def install_dependencies(packages: list[str]) -> dict:
+    """Pip-install third-party packages into the standalone venv (e.g. Pillow).
+
+    Sets the venv up first if needed. Use for deps a standalone script imports
+    beyond `flapi`. Never touches Baselight's app-script venvs. Returns install
+    status and a tail of the pip log.
+    """
+    from flapi_dev_mcp import venvs
+    return venvs.install_dependencies(packages)
+
+
 def _root_summary(br: disc.BuildRoot) -> dict:
     return {
         "version": br.version,
