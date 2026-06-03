@@ -129,6 +129,33 @@ def get_class_docs(class_name: str) -> dict:
 
 
 @mcp.tool()
+def check_flapid(hostname: str = "") -> dict:
+    """Check whether a Baselight FLAPI daemon (flapid) is reachable.
+
+    Opens a real FLAPI connection from the standalone venv (default host from
+    config, usually localhost) and lists jobs. Call this before running a
+    standalone script that connects to Baselight. If it fails, help the user
+    start Baselight (so flapid runs) or use the launch() pattern. Returns
+    connection status, host, and the available jobs.
+    """
+    from flapi_dev_mcp import flapi_conn
+    return flapi_conn.check_flapid(hostname or None)
+
+
+@mcp.tool()
+def check_standalone_readiness(hostname: str = "") -> dict:
+    """Are we ready to run a standalone FLAPI script? Aggregates the checks.
+
+    Verifies the standalone venv + `import flapi`, probes flapid connectivity,
+    and checks auth (auto for localhost; token needed for remote). Returns
+    ready (bool) plus per-part status and concrete remedies for anything
+    missing. Call this at the start of writing/running a standalone script.
+    """
+    from flapi_dev_mcp import flapi_conn
+    return flapi_conn.check_standalone_readiness(hostname or None)
+
+
+@mcp.tool()
 def setup_standalone_env(reinstall_wheel: bool = False) -> dict:
     """Create/verify the MCP-owned venv for standalone FLAPI scripts.
 
