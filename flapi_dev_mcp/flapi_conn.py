@@ -52,14 +52,14 @@ def auth_token_present() -> bool:
     return TOKEN_PATH.is_file()
 
 
-def check_flapid(hostname: str | None = None, timeout: int = 15) -> dict:
+def check_flapid(hostname: str | None = None, project_dir: str = "", timeout: int = 15) -> dict:
     """Attempt a real FLAPI connection from the standalone venv."""
     host = _host(hostname)
     layout = venvs.default_layout()
     if layout is None:
         return {"connected": False, "host": host,
                 "error": "no build root; run `flapi-dev-mcp init`"}
-    venv = venvs.venv_path(layout.version)
+    venv = venvs.resolve_venv_dir(project_dir, layout.version)
     py = venvs.venv_python(venv)
     if not py.exists():
         return {"connected": False, "host": host,
@@ -77,12 +77,12 @@ def check_flapid(hostname: str | None = None, timeout: int = 15) -> dict:
                 "error": (r.stderr or r.stdout).strip()[:300] or "no output"}
 
 
-def check_standalone_readiness(hostname: str | None = None) -> dict:
+def check_standalone_readiness(hostname: str | None = None, project_dir: str = "") -> dict:
     """Aggregate everything needed to run a standalone script: venv + flapi
     import + flapid connectivity + auth token."""
     host = _host(hostname)
-    env = venvs.setup_standalone_env()
-    flapid = check_flapid(host)
+    env = venvs.setup_standalone_env(project_dir)
+    flapid = check_flapid(host, project_dir)
     is_local = host in ("localhost", "127.0.0.1", "")
     token_ok = is_local or auth_token_present()
 

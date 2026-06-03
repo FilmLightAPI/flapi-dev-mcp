@@ -155,56 +155,84 @@ def install_app_dependencies(packages: list[str]) -> dict:
 
 
 @mcp.tool()
-def check_flapid(hostname: str = "") -> dict:
+def check_flapid(hostname: str = "", project_dir: str = "") -> dict:
     """Check whether a Baselight FLAPI daemon (flapid) is reachable.
 
     Opens a real FLAPI connection from the standalone venv (default host from
-    config, usually localhost) and lists jobs. Call this before running a
-    standalone script that connects to Baselight. If it fails, help the user
-    start Baselight (so flapid runs) or use the launch() pattern. Returns
-    connection status, host, and the available jobs.
+    config, usually localhost) and lists jobs. Pass project_dir (the folder
+    where the script lives) so it uses that project's venv. Call this before
+    running a standalone script. If it fails, help the user start Baselight or
+    use the launch() pattern. Returns connection status, host, and jobs.
     """
     from flapi_dev_mcp import flapi_conn
-    return flapi_conn.check_flapid(hostname or None)
+    return flapi_conn.check_flapid(hostname or None, project_dir)
 
 
 @mcp.tool()
-def check_standalone_readiness(hostname: str = "") -> dict:
+def check_standalone_readiness(hostname: str = "", project_dir: str = "") -> dict:
     """Are we ready to run a standalone FLAPI script? Aggregates the checks.
 
-    Verifies the standalone venv + `import flapi`, probes flapid connectivity,
-    and checks auth (auto for localhost; token needed for remote). Returns
-    ready (bool) plus per-part status and concrete remedies for anything
-    missing. Call this at the start of writing/running a standalone script.
+    Pass project_dir (the folder where the script will live) — the standalone
+    venv is created there as `<project_dir>/.venv`. Verifies the venv +
+    `import flapi`, probes flapid connectivity, and checks auth (auto for
+    localhost; token for remote). Returns ready (bool) plus per-part status and
+    remedies. Call this at the start of writing/running a standalone script.
     """
     from flapi_dev_mcp import flapi_conn
-    return flapi_conn.check_standalone_readiness(hostname or None)
+    return flapi_conn.check_standalone_readiness(hostname or None, project_dir)
 
 
 @mcp.tool()
-def setup_standalone_env(reinstall_wheel: bool = False) -> dict:
-    """Create/verify the MCP-owned venv for standalone FLAPI scripts.
+def setup_standalone_env(project_dir: str = "", reinstall_wheel: bool = False) -> dict:
+    """Create/verify the venv for standalone FLAPI scripts.
 
-    Stands up ~/.flapi-dev-mcp/venvs/<version>/ from the same base Python
-    Baselight uses, installs the build-matching `filmlightapi` wheel, and
-    confirms `import flapi` works. Call this before running a standalone script.
-    Separate from Baselight's app-script venvs (which it never touches).
-    Returns the venv path/interpreter and whether `import flapi` succeeds.
+    Pass project_dir to create a self-contained `<project_dir>/.venv` (preferred);
+    built from the same base Python Baselight uses, with the build-matching
+    `filmlightapi` wheel installed and `import flapi` confirmed. Without
+    project_dir, falls back to a shared ~/.flapi-dev-mcp/venvs/<version>/.
+    Never touches Baselight's app-script venvs. Returns venv path/interpreter
+    and whether `import flapi` works.
     """
     from flapi_dev_mcp import venvs
-    return venvs.setup_standalone_env(reinstall_wheel=reinstall_wheel)
+    return venvs.setup_standalone_env(project_dir, reinstall_wheel=reinstall_wheel)
 
 
 @mcp.tool()
-def install_dependencies(packages: list[str]) -> dict:
+def install_dependencies(packages: list[str], project_dir: str = "") -> dict:
     """Pip-install third-party packages into the standalone venv (e.g. Pillow).
 
-    Sets the venv up first if needed. Use for deps a standalone script imports
-    beyond `flapi`. Never touches Baselight's app-script venvs. Returns install
-    status and a tail of the pip log.
+    Pass project_dir so it targets that project's `.venv`. Sets the venv up
+    first if needed. Use for deps a standalone script imports beyond `flapi`.
+    Never touches Baselight's app-script venvs. Returns install status + pip log.
     """
     from flapi_dev_mcp import venvs
-    return venvs.install_dependencies(packages)
+    return venvs.install_dependencies(packages, project_dir)
+
+
+@mcp.tool()
+def reload_app_scripts(host: str = "localhost") -> dict:
+    """Reload Baselight's app scripts programmatically (the "Reload Scripts" button).
+
+    After writing/editing an App Script into scripts/ or server-scripts/, call
+    this to make Baselight pick it up — an HTTP GET to :1984/reload-scripts that
+    restarts the FLAPI server's Python. Catches load/parse errors right away
+    (check get_flapi_log after). For a UI menu item, the user still clicks the
+    item to trigger its action. Falls back to `sudo fl-service restart flapi`.
+    """
+    from flapi_dev_mcp import app_scripts
+    return app_scripts.reload_app_scripts(host)
+
+
+@mcp.tool()
+def get_flapi_log(lines: int = 80) -> dict:
+    """Tail the current FLAPI/flapid log to observe app-script output.
+
+    App scripts can't return output to you directly; have them `print(..., flush=True)`
+    and read it here. Also surfaces load/parse tracebacks when Baselight fails to
+    load a script. Call after reload_app_scripts or after the user runs a menu item.
+    """
+    from flapi_dev_mcp import app_scripts
+    return app_scripts.get_flapi_log(lines)
 
 
 def _root_summary(br: disc.BuildRoot) -> dict:

@@ -12,10 +12,14 @@ from __future__ import annotations
 
 import os
 import subprocess
+import urllib.request
 from pathlib import Path
 
 from flapi_dev_mcp import config as cfgmod
 from flapi_dev_mcp import discovery as disc
+
+LOG_DIR = disc.DATA_ROOT / "log"
+RELOAD_PORT = 1984  # the FilmLight app server (flici) HTTP port
 
 
 def _config() -> dict:
@@ -98,6 +102,60 @@ def check_app_script_readiness(kind: str = "both") -> dict:
         "note": "Write the app script into the deploy dir, then load/reload it in Baselight. "
                 "Install any extra deps with install_app_dependencies (managed venv).",
     }
+
+
+def reload_app_scripts(host: str = "localhost", timeout: int = 12) -> dict:
+    """Trigger Baselight's "Reload Scripts" action programmatically.
+
+    This is exactly what the Views > Scripts > (gear) > Reload Scripts button
+    does: an HTTP GET to http://<host>:1984/reload-scripts, which restarts the
+    FLAPI server's Python so newly-deployed/edited app scripts are picked up.
+    """
+    url = f"http://{host}:{RELOAD_PORT}/reload-scripts"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            body = r.read().decode(errors="replace").strip()
+            return {"ok": r.status == 200, "status": r.status, "body": body, "url": url}
+    except Exception as e:
+        return {"ok": False, "url": url, "error": str(e)[:300],
+                "fallback": "run in Terminal: sudo fl-service restart flapi"}
+
+
+def _current_log_file() -> Path | None:
+    """Best-effort: the log carrying flapid/app-script output.
+
+    Logs are per-process `<host>-<proc>-<rand>/console.txt`. We try the
+    `<host>-flapid` symlink (file or dir/console.txt); if that's stale, fall
+    back to the most-recently-modified `console.txt` one level down.
+    """
+    if not LOG_DIR.is_dir():
+        return None
+    for p in LOG_DIR.glob("*-flapid"):
+        try:
+            real = p.resolve()
+        except OSError:
+            continue
+        if real.is_file():
+            return real
+        if real.is_dir() and (real / "console.txt").is_file():
+            return real / "console.txt"
+    consoles = [c for c in LOG_DIR.glob("*/console.txt") if c.is_file()]
+    return max(consoles, key=lambda f: f.stat().st_mtime) if consoles else None
+
+
+def get_flapi_log(lines: int = 80) -> dict:
+    """Tail the current FLAPI/flapid log — where app-script `print(flush=True)`
+    output and load/parse tracebacks land. Use after reloading/running an app
+    script to see what happened."""
+    f = _current_log_file()
+    if f is None:
+        return {"ok": False, "error": f"no flapid log found under {LOG_DIR}"}
+    try:
+        text = f.read_text(errors="replace")
+    except OSError as e:
+        return {"ok": False, "log": str(f), "error": str(e)}
+    tail = text.splitlines()[-lines:]
+    return {"ok": True, "log": str(f), "lines": len(tail), "text": "\n".join(tail)}
 
 
 def install_app_dependencies(packages: list[str]) -> dict:

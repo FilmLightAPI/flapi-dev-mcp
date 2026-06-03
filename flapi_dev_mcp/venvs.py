@@ -40,6 +40,14 @@ def venv_path(version: str) -> Path:
     return VENVS_DIR / version
 
 
+def resolve_venv_dir(project_dir: str = "", version: str = "") -> Path:
+    """Per-project `.venv` when a project dir is given (preferred), else the
+    shared per-build venv under ~/.flapi-dev-mcp/venvs/<version> (fallback)."""
+    if project_dir:
+        return Path(project_dir).expanduser().resolve() / ".venv"
+    return VENVS_DIR / version
+
+
 def venv_python(venv: Path) -> Path:
     return venv / "bin" / "python"
 
@@ -52,8 +60,13 @@ def _import_check(venv: Path) -> dict:
     return {"ok": r.returncode == 0, "detail": (r.stdout or r.stderr).strip()[:300]}
 
 
-def setup_standalone_env(reinstall_wheel: bool = False) -> dict:
-    """Create the standalone venv (if absent) and install the filmlightapi wheel."""
+def setup_standalone_env(project_dir: str = "", reinstall_wheel: bool = False) -> dict:
+    """Create the standalone venv (if absent) and install the filmlightapi wheel.
+
+    With project_dir, the venv is created at <project_dir>/.venv (preferred —
+    self-contained, isolated per project). Without it, a shared per-build venv
+    under ~/.flapi-dev-mcp/venvs/<version> is used (fallback).
+    """
     layout = default_layout()
     if layout is None:
         return {"ok": False, "error": "no usable build root; run `flapi-dev-mcp init`"}
@@ -61,7 +74,7 @@ def setup_standalone_env(reinstall_wheel: bool = False) -> dict:
         return {"ok": False, "error": f"no filmlightapi wheel found in build root {layout.app}"}
 
     version = layout.version
-    venv = venv_path(version)
+    venv = resolve_venv_dir(project_dir, version)
     base_python = _config().get("baselight", {}).get("flapi_python_path") or sys.executable
 
     created = False
@@ -90,20 +103,21 @@ def setup_standalone_env(reinstall_wheel: bool = False) -> dict:
         "base_python": base_python,
         "venv": str(venv),
         "venv_python": str(venv_python(venv)),
+        "mode": "project" if project_dir else "shared",
         "created": created,
         "wheel": str(layout.wheel),
         "import_flapi": imp,
     }
 
 
-def install_dependencies(packages: list[str]) -> dict:
+def install_dependencies(packages: list[str], project_dir: str = "") -> dict:
     """Pip-install extra packages into the standalone venv (sets it up first if needed)."""
     layout = default_layout()
     if layout is None:
         return {"ok": False, "error": "no usable build root; run `flapi-dev-mcp init`"}
-    venv = venv_path(layout.version)
+    venv = resolve_venv_dir(project_dir, layout.version)
     if not venv_python(venv).exists():
-        setup = setup_standalone_env()
+        setup = setup_standalone_env(project_dir)
         if not setup["ok"]:
             return {"ok": False, "error": "standalone venv setup failed", "setup": setup}
     if not packages:
