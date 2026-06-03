@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flapi-dev-mcp"
+version = "0.0.1"
+description = "Local MCP server that makes Claude an expert FLAPI (FilmLight Baselight) developer"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2.0",
+]
+
+[project.scripts]
+flapi-dev-mcp = "flapi_dev_mcp.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["flapi_dev_mcp*"]
