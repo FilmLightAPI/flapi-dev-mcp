@@ -101,6 +101,21 @@ def get_api_surface() -> dict:
 
 
 @mcp.tool()
+def search_examples(query: str, limit: int = 10) -> dict:
+    """Keyword-search example scripts across all context sources.
+
+    Searches the cloned enhancements repo (App Scripts, FLAPI Tools, Shaders),
+    the build's bundled examples, and any extra dirs the user registered, over
+    filenames and file contents. Call this early when writing a script to find
+    similar existing ones to learn from or adapt. Returns matching files with
+    the source they came from and a few matching-line snippets, ranked by
+    relevance. Searches: file/dir names, comments, function names, class usage.
+    """
+    from flapi_dev_mcp import search
+    return search.search_examples(query, limit=limit)
+
+
+@mcp.tool()
 def get_class_docs(class_name: str) -> dict:
     """Full docs for one FLAPI class, from the build's JSON schema (ground truth).
 
