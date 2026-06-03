@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from flapi_dev_mcp import config as cfgmod
 from flapi_dev_mcp import discovery as disc
@@ -134,6 +135,21 @@ def _cmd_init(args: argparse.Namespace) -> int:
     _ok("baselight_roots", len(cfg["baselight_roots"]))
     _ok("sources", len(cfg["sources"]))
     _ok("default_root", cfg["default_root"])
+
+    # Does the build currently serving flapid match the target we just chose?
+    running = disc.detect_running_build()
+    if running and running.version:
+        target_layout = disc.resolve_layout(Path(cfg["default_root"]), "release") if cfg["default_root"] else None
+        target_v = target_layout.version if target_layout else None
+        _heading("Running flapid")
+        if target_v and running.version != target_v:
+            print(f"  {_yellow('•')} mismatch: targeting {target_v}, but flapid is running build {running.version}")
+            if target_layout and target_layout.app:
+                print(_dim(f"      match the server to your target:  "
+                           f"sudo {target_layout.app}/Contents/bin/fl-service restart flapi"))
+            print(_dim(f"      or switch target to the running build:  flapi-dev-mcp target-running"))
+        else:
+            _ok("running build matches target", running.version)
     if not cfg["baselight_roots"]:
         print(_yellow("  No build roots configured. Add one: "
                       "flapi-dev-mcp config add-baselight-root <path> --kind dev-build"))
