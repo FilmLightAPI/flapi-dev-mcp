@@ -67,7 +67,12 @@ def build_config(
             entry["label"] = label
         baselight_roots.append(entry)
 
-    default_root = baselight_roots[0] if baselight_roots else None
+    # Default to the build `/Applications/Baselight/Current` points at (the active
+    # version), not whatever sorts first — with both 6.0 and 7.0 installed, scan
+    # order would otherwise pick the wrong one.
+    current_path = str(APPS_DIR / "Current")
+    default_root = (next((r for r in baselight_roots if r["path"] == current_path), None)
+                    or (baselight_roots[0] if baselight_roots else None))
     default_root_path = default_root["path"] if default_root else None
 
     # The venv depends on which build we target: <python-minor>-v<baselight-major>-venv.

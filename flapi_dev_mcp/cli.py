@@ -38,7 +38,9 @@ def _heading(t: str) -> None:
 def _ok(label: str, value: object) -> None:
     print(f"  {_green('✓')} {label}: {value}")
 
-def _miss(label: str) -> None:
+def _miss(label: str, value: object = None) -> None:
+    # value is accepted (and ignored) so the `(_ok if x else _miss)(label, value)`
+    # idiom works whether x is truthy or not.
     print(f"  {_yellow('•')} {label}: {_yellow('not found')}")
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -111,16 +113,21 @@ def _cmd_init(args: argparse.Namespace) -> int:
     flapid_host = args.host or "localhost"
 
     if interactive:
-        _heading("Dev build roots")
-        print(_dim("A FilmLight dev box has no /Applications/Baselight. Register dev builds/checkouts."))
-        for path in _ask_loop("dev-build .app or dev-source checkout path"):
-            kind = _ask("  kind (dev-build/dev-source)", "dev-build")
-            dev_roots.append((path, kind, None))
+        # Dev build/checkout roots are only relevant to FilmLight engineers (a dev
+        # box has no /Applications/Baselight). Hidden unless --dev, so it doesn't
+        # confuse end users.
+        if args.dev:
+            _heading("Dev build roots")
+            print(_dim("For FilmLight devs: register a dev-build .app or dev-source checkout."))
+            for path in _ask_loop("dev-build .app or dev-source checkout path"):
+                kind = _ask("  kind (dev-build/dev-source)", "dev-build")
+                dev_roots.append((path, kind, None))
 
         _heading("flapid host")
         flapid_host = _ask("default flapid host", flapid_host)
 
         _heading("Extra context sources")
+        print(_dim("Point at any extra FLAPI-rich folders (your own scripts, integrations…)."))
         extra_sources += _ask_loop("extra FLAPI script/doc directory")
 
     cfg = cfgmod.build_config(
@@ -253,6 +260,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="register a dev build root (repeatable)")
     p_init.add_argument("--source", action="append", metavar="PATH",
                         help="register an extra context source dir (repeatable)")
+    p_init.add_argument("--dev", action="store_true",
+                        help="FilmLight devs: also prompt for dev build/checkout roots")
     p_init.add_argument("--no-repo", action="store_true",
                         help="skip cloning the enhancements repo (e.g. offline)")
 
