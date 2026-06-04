@@ -147,6 +147,19 @@ def check_app_script_readiness(kind: str = "both") -> dict:
 
 
 @mcp.tool()
+def create_app_venv() -> dict:
+    """Create/update Baselight's managed app-script venv (no sudo).
+
+    Runs `fl-setup-flapi-scripts --create`, which builds the venv and installs the
+    build-matching `filmlightapi` wheel. Call this when check_app_script_readiness
+    reports the managed venv is missing (offer it to the user first; it can take a
+    minute and downloads the wheel). Returns the resulting venv path and a log tail.
+    """
+    from flapi_dev_mcp import app_scripts
+    return app_scripts.create_managed_venv()
+
+
+@mcp.tool()
 def install_app_dependencies(packages: list[str]) -> dict:
     """Pip-install packages into Baselight's MANAGED venv (where App Scripts run).
 

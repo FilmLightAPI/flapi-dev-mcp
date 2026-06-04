@@ -46,20 +46,8 @@ def _fl_setup_scripts() -> Path | None:
 
 
 def _venv_via_fl_setup() -> Path | None:
-    """Ask Baselight's own fl-setup-flapi-scripts where the managed venv is (`-e`).
-
-    Authoritative — no blsiteprefs parsing or venv-name guessing, and it returns a
-    sensible default (3.12) even when no interpreter pref is set.
-    """
-    fss = _fl_setup_scripts()
-    if not fss or not Path(fss).exists():
-        return None
-    try:
-        r = subprocess.run([str(fss), "-e"], capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    path = r.stdout.strip()
-    return Path(path) if r.returncode == 0 and path else None
+    """Authoritative managed-venv path via `fl-setup-flapi-scripts -e`."""
+    return disc.fl_setup_venv(_fl_setup_scripts())
 
 
 def managed_venv() -> Path | None:
@@ -272,6 +260,24 @@ def get_app_script_log(lines: int = 80) -> dict:
         return {"ok": False, "log": str(log), "error": str(e)}
     tail = text.splitlines()[-lines:]
     return {"ok": True, "log": str(log), "lines": len(tail), "text": "\n".join(tail)}
+
+
+def create_managed_venv() -> dict:
+    """Build/update Baselight's managed app-script venv via `fl-setup-flapi-scripts
+    --create` (no sudo). Use when the venv doesn't exist yet."""
+    fss = _fl_setup_scripts()
+    if not fss or not Path(fss).exists():
+        return {"ok": False, "error": "fl-setup-flapi-scripts not found in the target build"}
+    try:
+        r = subprocess.run([str(fss), "--create"], capture_output=True, text=True, timeout=900)
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"ok": False, "error": str(e)[:300]}
+    venv = _venv_via_fl_setup()
+    return {
+        "ok": r.returncode == 0,
+        "venv": str(venv) if venv else None,
+        "log": (r.stdout + r.stderr).strip()[-1500:],
+    }
 
 
 def install_app_dependencies(packages: list[str]) -> dict:

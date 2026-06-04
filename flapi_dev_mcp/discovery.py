@@ -99,6 +99,24 @@ def resolve_venv(python_dir: Path | None, python_minor: str | None, bl_major: st
     return sorted(legacy)[0] if legacy else None
 
 
+def fl_setup_venv(setup_scripts: Path | None) -> Path | None:
+    """Ask Baselight's own `fl-setup-flapi-scripts -e` for the managed venv path.
+
+    Authoritative — no blsiteprefs parsing or venv-name guessing, and it returns
+    a sensible default (3.12) even with no interpreter pref set. Returns the path
+    it names (which may not exist yet — caller checks). None if the tool is
+    absent or errors.
+    """
+    if not setup_scripts or not Path(setup_scripts).exists():
+        return None
+    try:
+        r = subprocess.run([str(setup_scripts), "-e"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    path = r.stdout.strip()
+    return Path(path) if r.returncode == 0 and path else None
+
+
 def discover_data_root() -> DataRoot:
     root = DATA_ROOT
     if not root.is_dir():

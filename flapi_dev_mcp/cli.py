@@ -161,12 +161,23 @@ def _cmd_init(args: argparse.Namespace) -> int:
         print(_yellow("  No build roots configured. Add one: "
                       "flapi-dev-mcp config add-baselight-root <path> --kind dev-build"))
 
-    # If no FLAPI venv exists yet, lead with the one-command headless fix.
+    # If no FLAPI venv exists yet, offer to build it (not sudo-gated).
     if not cfg["baselight"].get("active_venv"):
+        from flapi_dev_mcp import app_scripts
         fss = next((br.setup_scripts for br in d.release_roots if br.setup_scripts), None)
-        create_cmd = f'"{fss}" --create' if fss else "fl-setup-flapi-scripts --create"
         _heading("Action needed — no FLAPI venv yet")
         print(f"  {_yellow('•')} The FLAPI virtual environment hasn't been created.")
+        if interactive and fss:
+            if _ask("Create it now? (runs fl-setup-flapi-scripts --create)", "Y").lower().startswith("y"):
+                print(_dim("  creating venv (installs the filmlightapi wheel; may take a minute)…"))
+                res = app_scripts.create_managed_venv()
+                if res.get("ok"):
+                    _ok("venv created", res.get("venv"))
+                    print(_dim("  re-run `flapi-dev-mcp init` to refresh the config."))
+                else:
+                    print(_yellow(f"  create failed: {res.get('error') or 'see log'}"))
+                return 0
+        create_cmd = f'"{fss}" --create' if fss else "fl-setup-flapi-scripts --create"
         print(_dim(f"      Create it (headless, no GUI):  {create_cmd}"))
         print(_dim("      …or just launch Baselight once. Then re-run: flapi-dev-mcp init"))
         print(_dim("      (Optional: to pin a Python version, set it in Baselight"))

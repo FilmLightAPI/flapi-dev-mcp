@@ -11,11 +11,7 @@ import json
 from pathlib import Path
 
 from flapi_dev_mcp.discovery import (
-    APPS_DIR,
-    DATA_ROOT,
-    Discovery,
-    baselight_major,
-    resolve_venv,
+    APPS_DIR, DATA_ROOT, Discovery, fl_setup_venv, resolve_layout,
 )
 
 CONFIG_DIR = Path.home() / ".flapi-dev-mcp"
@@ -75,9 +71,17 @@ def build_config(
                     or (baselight_roots[0] if baselight_roots else None))
     default_root_path = default_root["path"] if default_root else None
 
-    # The venv depends on which build we target: <python-minor>-v<baselight-major>-venv.
-    default_major = baselight_major(default_root.get("version")) if default_root else None
-    active_venv = resolve_venv(dr.python_dir, dr.python_minor, default_major)
+    # Resolve the managed venv authoritatively via `fl-setup-flapi-scripts -e`
+    # (the same source app-script readiness uses). Only record it if it actually
+    # exists — otherwise leave it null so init's "create the venv" guidance fires
+    # (don't let a stale legacy venv mask a missing one).
+    active_venv = None
+    if default_root:
+        layout = resolve_layout(Path(default_root_path), default_root.get("kind", "release"),
+                                default_root.get("label"))
+        venv = fl_setup_venv(layout.setup_scripts)
+        if venv and (venv / "bin" / "python").exists():
+            active_venv = str(venv)
 
     # Context sources: the canonical enhancements repo (git) first, then the
     # build's bundled examples, then any extra dirs the user registered.
