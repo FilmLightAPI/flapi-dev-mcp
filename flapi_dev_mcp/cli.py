@@ -161,21 +161,16 @@ def _cmd_init(args: argparse.Namespace) -> int:
         print(_yellow("  No build roots configured. Add one: "
                       "flapi-dev-mcp config add-baselight-root <path> --kind dev-build"))
 
-    # If FLAPI Python / the venv aren't set up yet, tell the user the exact fix
-    # (the pref is set in the GUI, then the app builds the venv on launch).
-    bl = cfg["baselight"]
-    if not bl.get("flapi_python_path") or not bl.get("active_venv"):
-        _heading("Action needed — FLAPI Python isn't set up yet")
-        if not bl.get("flapi_python_path"):
-            print(f"  {_yellow('•')} No FLAPI Python interpreter is set in Baselight.")
-            print(_dim("      1. In Baselight: Preferences > Advanced > API Server > set the Python"))
-            print(_dim("         Interpreter, e.g. /Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11"))
-            print(_dim("      2. Launch Baselight once — it builds the FLAPI venv on startup."))
-            print(_dim("      3. Re-run: flapi-dev-mcp init"))
-        else:
-            print(f"  {_yellow('•')} Interpreter is set but no matching venv exists yet.")
-            print(_dim("      Launch Baselight once (it builds the venv on startup), or run"))
-            print(_dim("      fl-setup-flapi-scripts --create, then re-run: flapi-dev-mcp init"))
+    # If no FLAPI venv exists yet, lead with the one-command headless fix.
+    if not cfg["baselight"].get("active_venv"):
+        fss = next((br.setup_scripts for br in d.release_roots if br.setup_scripts), None)
+        create_cmd = f'"{fss}" --create' if fss else "fl-setup-flapi-scripts --create"
+        _heading("Action needed — no FLAPI venv yet")
+        print(f"  {_yellow('•')} The FLAPI virtual environment hasn't been created.")
+        print(_dim(f"      Create it (headless, no GUI):  {create_cmd}"))
+        print(_dim("      …or just launch Baselight once. Then re-run: flapi-dev-mcp init"))
+        print(_dim("      (Optional: to pin a Python version, set it in Baselight"))
+        print(_dim("       Preferences > Advanced > API Server before creating.)"))
     return 0
 
 
