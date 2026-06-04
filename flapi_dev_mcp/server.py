@@ -106,9 +106,11 @@ def search_examples(query: str, limit: int = 10) -> dict:
 
     Searches the cloned enhancements repo (App Scripts, FLAPI Tools, Shaders),
     the build's bundled examples, and any extra dirs the user registered, over
-    filenames and file contents. Call this early when writing a script to find
-    similar existing ones to learn from or adapt. Returns matching files with
-    the source they came from and a few matching-line snippets, ranked by
+    filenames and file contents. **Call this BEFORE writing any FLAPI script**
+    (and before reaching for external tools like ffmpeg) — there is very likely
+    an idiomatic example (e.g. exporting stills, rendering, metadata) that's
+    better to adapt than to reinvent. Then read the top hit in full. Returns
+    matching files with their source and matching-line snippets, ranked by
     relevance. Searches: file/dir names, comments, function names, class usage.
     """
     from flapi_dev_mcp import search
@@ -135,8 +137,10 @@ def check_app_script_readiness(kind: str = "both") -> dict:
     kind: 'ui' (menu items/dialogs → scripts/), 'server' (background →
     server-scripts/), or 'both'. Checks Baselight's managed venv (`import flapi`)
     and that the deploy directory exists and is writable. Returns the deploy
-    dir(s) to write the script into and the managed-venv interpreter, plus
-    remedies. Call this when writing an App Script (vs a standalone script).
+    dir(s) to write the script into and the managed-venv interpreter, plus a
+    step-by-step `workflow`. Call this when writing an App Script (vs a
+    standalone script). BEFORE writing code, also call search_examples for a
+    similar App Script (the repo's App Scripts have the menu/dialog boilerplate).
     """
     from flapi_dev_mcp import app_scripts
     return app_scripts.check_app_script_readiness(kind)
@@ -172,11 +176,17 @@ def check_flapid(hostname: str = "", project_dir: str = "") -> dict:
 def check_standalone_readiness(hostname: str = "", project_dir: str = "") -> dict:
     """Are we ready to run a standalone FLAPI script? Aggregates the checks.
 
-    Pass project_dir (the folder where the script will live) — the standalone
-    venv is created there as `<project_dir>/.venv`. Verifies the venv +
-    `import flapi`, probes flapid connectivity, and checks auth (auto for
-    localhost; token for remote). Returns ready (bool) plus per-part status and
-    remedies. Call this at the start of writing/running a standalone script.
+    ALWAYS pass project_dir = your current working directory (the folder the
+    script will live in). The standalone venv is then created there as
+    `<project_dir>/.venv`, self-contained per project. (Omitting project_dir
+    uses a shared home venv — avoid that.) Verifies the venv + `import flapi`,
+    probes flapid connectivity, checks auth. Returns ready (bool) + per-part
+    status and remedies.
+
+    Call this at the START of a standalone script task. Then, BEFORE writing
+    code, call search_examples to find a similar existing script to adapt — the
+    repo has idiomatic FLAPI patterns (e.g. exporting stills) that are better
+    than reinventing them.
     """
     from flapi_dev_mcp import flapi_conn
     return flapi_conn.check_standalone_readiness(hostname or None, project_dir)
@@ -184,14 +194,14 @@ def check_standalone_readiness(hostname: str = "", project_dir: str = "") -> dic
 
 @mcp.tool()
 def setup_standalone_env(project_dir: str = "", reinstall_wheel: bool = False) -> dict:
-    """Create/verify the venv for standalone FLAPI scripts.
+    """Create/verify the per-project venv for standalone FLAPI scripts.
 
-    Pass project_dir to create a self-contained `<project_dir>/.venv` (preferred);
-    built from the same base Python Baselight uses, with the build-matching
-    `filmlightapi` wheel installed and `import flapi` confirmed. Without
-    project_dir, falls back to a shared ~/.flapi-dev-mcp/venvs/<version>/.
-    Never touches Baselight's app-script venvs. Returns venv path/interpreter
-    and whether `import flapi` works.
+    ALWAYS pass project_dir = your current working directory; the venv is created
+    there as `<project_dir>/.venv` — self-contained and isolated per project,
+    built from Baselight's base Python with the build-matching `filmlightapi`
+    wheel, `import flapi` confirmed. (Omitting project_dir falls back to a shared
+    ~/.flapi-dev-mcp/venvs/<version>/ — avoid unless there is genuinely no
+    project folder.) Never touches Baselight's app-script venvs.
     """
     from flapi_dev_mcp import venvs
     return venvs.setup_standalone_env(project_dir, reinstall_wheel=reinstall_wheel)
@@ -201,9 +211,10 @@ def setup_standalone_env(project_dir: str = "", reinstall_wheel: bool = False) -
 def install_dependencies(packages: list[str], project_dir: str = "") -> dict:
     """Pip-install third-party packages into the standalone venv (e.g. Pillow).
 
-    Pass project_dir so it targets that project's `.venv`. Sets the venv up
-    first if needed. Use for deps a standalone script imports beyond `flapi`.
-    Never touches Baselight's app-script venvs. Returns install status + pip log.
+    ALWAYS pass project_dir = your current working directory so deps install into
+    that project's `<project_dir>/.venv` (the same venv setup_standalone_env /
+    check_standalone_readiness use). Sets the venv up first if needed. For deps a
+    standalone script imports beyond `flapi`. Never touches app-script venvs.
     """
     from flapi_dev_mcp import venvs
     return venvs.install_dependencies(packages, project_dir)
