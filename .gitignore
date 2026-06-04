@@ -5,3 +5,6 @@ __pycache__/
 .DS_Store
 build/
 dist/
+
+# Local Zulip post drafts / replies — not part of the project
+POST_*.md
