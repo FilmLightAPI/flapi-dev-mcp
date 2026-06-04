@@ -1,14 +1,15 @@
 """The MCP-owned standalone venv for FLAPI scripts that run outside Baselight.
 
 Baselight owns the app-script venvs (under …/FilmLight/python); the MCP owns a
-separate venv per target build at ~/.flapi-dev-mcp/venvs/<version>/, built from
-the same base Python Baselight uses, with the build-matching `filmlightapi`
-wheel installed. The two never touch. Backs setup_standalone_env() and
-install_dependencies().
+separate per-project `.venv` (in the script's own folder, defaulting to the
+server's cwd), built from the same base Python Baselight uses with the
+build-matching `filmlightapi` wheel installed. The two never touch. Backs
+setup_standalone_env() and install_dependencies().
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -41,11 +42,12 @@ def venv_path(version: str) -> Path:
 
 
 def resolve_venv_dir(project_dir: str = "", version: str = "") -> Path:
-    """Per-project `.venv` when a project dir is given (preferred), else the
-    shared per-build venv under ~/.flapi-dev-mcp/venvs/<version> (fallback)."""
-    if project_dir:
-        return Path(project_dir).expanduser().resolve() / ".venv"
-    return VENVS_DIR / version
+    """Always a per-project `.venv`. Uses the given project_dir, else the MCP
+    server's current working directory (Claude Code launches the server in the
+    project folder), so per-project venvs happen automatically without the agent
+    having to pass anything. `version` is unused (kept for call-site compat)."""
+    base = project_dir or os.getcwd()
+    return Path(base).expanduser().resolve() / ".venv"
 
 
 def venv_python(venv: Path) -> Path:
@@ -103,7 +105,7 @@ def setup_standalone_env(project_dir: str = "", reinstall_wheel: bool = False) -
         "base_python": base_python,
         "venv": str(venv),
         "venv_python": str(venv_python(venv)),
-        "mode": "project" if project_dir else "shared",
+        "project_dir": str(venv.parent),
         "created": created,
         "wheel": str(layout.wheel),
         "import_flapi": imp,
