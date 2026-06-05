@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "flapi-dev": {
-      "command": "flapi-dev-mcp",
-      "args": []
-    }
-  }
-}
