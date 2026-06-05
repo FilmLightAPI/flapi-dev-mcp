@@ -116,7 +116,9 @@ def check_app_connection(port: int = 1985, username: str = "", host: str = "loca
                          "for live-session work (current scene / cursor / live thumbnails).")
     else:
         h = host or "localhost"
-        out["connect_idiom"] = f'flapi.Connection("{h}", {port}, "{user}")'
+        local = h in ("localhost", "127.0.0.1")
+        out["connect_idiom"] = (f'flapi.Connection("{h}", {port})  # user+token auto-resolved locally'
+                                if local else f'flapi.Connection("{h}", {port}, "{user}")')
         out["thumbnail_fetch"] = (f"ThumbnailManager.get_poster_uri(shot, opts) returns a relative "
                                   f"URI; GET http://{h}:{port}<uri> for the image bytes.")
     return out
@@ -148,7 +150,7 @@ def connection_selector(choice: str = "", host: str = "", port: int = 0,
                          "cursor/viewing state, and live thumbnails. Needs Baselight running with "
                          "a scene open.",
                  "reachable": app.get("connected"), "scene_open": app.get("current_scene"),
-                 "example": f'flapi.Connection("localhost", 1985, "{user}")'},
+                 "example": 'flapi.Connection("localhost", 1985)  # user+token auto-resolved locally'},
                 {"type": "launch",
                  "desc": "Spawn a private flapid from the build — fully headless, no running "
                          "service needed.",
@@ -213,20 +215,17 @@ def connection_selector(choice: str = "", host: str = "", port: int = 0,
             out["probe"] = {"connected": probe.get("connected"), "error": probe.get("error")}
         return out
 
-    as_app = choice == "app"
-    if as_app:
-        h = host or "localhost"
-        res = check_app_connection(port or 1985, user, h, project_dir)
-        res["mode"] = "emit"; res["choice"] = choice
+    if choice == "app":
+        # Local live-app. Username/token auto-resolve on localhost, so omit them.
+        res = check_app_connection(port or 1985, "", "localhost", project_dir)
+        res["mode"] = "emit"; res["choice"] = "app"
         if res.get("connected"):
-            res["snippet"] = (f'conn = flapi.Connection("{h}", {port or 1985}, "{user}")\n'
-                              f'conn.connect()\n'
+            res["snippet"] = (f'conn = flapi.Connection("localhost", {port or 1985})\n'
+                              f'conn.connect()                      # local: user+token auto-resolved\n'
                               f'app = conn.Application.get()\n'
                               f'scene = app.get_current_scene()\n'
                               f'# ... work ...\n'
                               f'conn.close()')
-        if h not in ("localhost", "127.0.0.1", "") and not auth_token_present():
-            res["auth_note"] = f"remote needs a token — run fl-setup-flapi-token on {h} ({TOKEN_PATH})"
         return res
 
     # flapid (and remote-flapid)
