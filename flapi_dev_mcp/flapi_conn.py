@@ -327,6 +327,8 @@ def check_standalone_readiness(hostname: str | None = None, project_dir: str = "
         )
     if not env.get("ok"):
         remedies.append("standalone venv / import flapi failed — see env detail")
+    fl_service = (f"sudo {targeted.app}/Contents/bin/fl-service start flapi"
+                  if targeted and targeted.app else "sudo fl-service start flapi")
     if not flapid.get("connected"):
         if not is_local:
             remedies.append(
@@ -337,15 +339,16 @@ def check_standalone_readiness(hostname: str | None = None, project_dir: str = "
             remedies.append(
                 "No flapid on :1984, but Baselight IS running (live app API on :1985). For "
                 "live-session work (current open scene, cursor, live thumbnails) use "
-                "flapi_connection -> app. For headless work, spawn a private flapid with "
-                "flapi.Connection().launch(), or start the flapid service."
+                "flapi_connection -> app. For headless work, spawn a private flapid in-script "
+                f"with flapi.Connection().launch(), or start the flapid service: {fl_service}"
             )
         else:
             remedies.append(
                 "No FLAPI server reachable: nothing on flapid :1984 or the app API :1985. "
-                "Headless: spawn a private flapid with flapi.Connection().launch() (no running "
-                "service needed), or start the flapid service. Live-app: launch Baselight (it "
-                "serves the API on :1985, then use flapi_connection -> app)."
+                "Headless: spawn a private flapid in-script with flapi.Connection().launch() "
+                f"(no service needed), or start the flapid service: {fl_service}  Live-app: "
+                "launch the Baselight app (it serves the API on :1985; then use "
+                "flapi_connection -> app)."
             )
     if not token_ok:
         remedies.append(f"no auth token for remote host — run fl-setup-flapi-token "
