@@ -208,8 +208,9 @@ def _print_status(r: GateResult) -> None:
     if r.uv:
         v = ".".join(map(str, r.uv_version)) if r.uv_version else "?"
         a = r.uv_arch or "?"
-        ok = (not r.is_apple_silicon and a == "x86_64") or (r.is_apple_silicon and a in ("arm64", "universal"))
-        mark = _green("✓") if ok else _red("✗")
+        arch_ok = (not r.is_apple_silicon and a == "x86_64") or (r.is_apple_silicon and a in ("arm64", "universal"))
+        ver_ok = r.uv_version is not None and r.uv_version >= MIN_UV_VERSION
+        mark = _green("✓") if (arch_ok and ver_ok) else _red("✗")
         print(f"  {mark} uv: {r.uv} ({a}, v{v})")
         for extra in r.uv_others:
             print(_dim(f"      also on PATH: {extra}"))
