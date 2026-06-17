@@ -325,7 +325,13 @@ def resolve_layout(root_path: Path, kind: str, label: str | None = None) -> Buil
     else:
         br.app = None
         # /usr/fl/baselight-7.0.1.25297 → 7.0.1.25297
-        m = re.search(r"baselight-(.+)$", Path(root_path).name)
+        # /usr/fl/baselight (symlink → baselight-X.Y.Z) → X.Y.Z, by
+        # resolving the symlink first; falls back to the literal name.
+        try:
+            real_name = Path(root_path).resolve().name
+        except OSError:
+            real_name = Path(root_path).name
+        m = re.search(r"baselight-(.+)$", real_name) or re.search(r"baselight-(.+)$", Path(root_path).name)
         br.version = m.group(1) if m else None
 
     def first(parent: Path, pattern: str) -> Path | None:

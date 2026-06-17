@@ -308,21 +308,31 @@ def check_standalone_readiness(hostname: str | None = None, project_dir: str = "
     targeted_v = targeted.version if targeted else None
     running = disc.detect_running_build() if is_local else None
     running_v = running.version if running else None
+    # On macOS `.app` is the bundle; on Linux it's None and the build dir IS
+    # the path. Either way, the path field carries the right thing.
+    running_path = str(running.path) if running else None
     build_match = {
         "targeted": targeted_v,
         "running": running_v,
         "match": (running_v is None) or (running_v == targeted_v),
-        "running_app": str(running.app) if running else None,
+        "running_app": running_path,
     }
+
+    def _fl_service_cmd(layout: "disc.BuildRoot | None", action: str) -> str:
+        """Build a `fl-service <action> flapi` command for the given build."""
+        if layout:
+            base = disc.LAYOUT.resolve_base(layout.path)
+            if base is not None:
+                return f"sudo {base}/bin/fl-service {action} flapi"
+        return f"sudo fl-service {action} flapi"
 
     ready = bool(env.get("ok") and flapid.get("connected"))
     remedies = []
     if running_v and targeted_v and running_v != targeted_v:
-        restart_cmd = (f"sudo {targeted.app}/Contents/bin/fl-service restart flapi"
-                       if targeted and targeted.app else "sudo fl-service restart flapi")
+        restart_cmd = _fl_service_cmd(targeted, "restart")
         remedies.append(
             f"build mismatch: you chose target {targeted_v} (at init), but the live "
-            f"flapid is {running_v} ({running.app}). Two fixes — "
+            f"flapid is {running_v} ({running_path}). Two fixes — "
             f"(1) make the server match your target (usual): restart flapid from your "
             f"target build, `{restart_cmd}`, or launch that build's Baselight; "
             f"(2) switch your target to the running build: `flapi-dev-mcp target-running`. "
@@ -330,8 +340,7 @@ def check_standalone_readiness(hostname: str | None = None, project_dir: str = "
         )
     if not env.get("ok"):
         remedies.append("standalone venv / import flapi failed — see env detail")
-    fl_service = (f"sudo {targeted.app}/Contents/bin/fl-service start flapi"
-                  if targeted and targeted.app else "sudo fl-service start flapi")
+    fl_service = _fl_service_cmd(targeted, "start")
     if not flapid.get("connected"):
         if not is_local:
             remedies.append(
