@@ -174,6 +174,23 @@ def baselight_major(version: str | None) -> str | None:
     return m.group(1) if m else None
 
 
+# Minimum Baselight major version this MCP supports. The wheel-based FLAPI
+# distribution (filmlightapi-*.whl + fl-setup-flapi-scripts) was introduced
+# in BL7.0.0.24232. BL5/BL6 use a fundamentally different FLAPI delivery
+# model and aren't supported. Set to 7 so v5/v6 installs are recognized but
+# refused with a clear message.
+MIN_SUPPORTED_MAJOR = 7
+
+
+def is_supported_version(version: str | None) -> bool:
+    """True if the given Baselight version is at our supported floor (BL7+)."""
+    major = baselight_major(version)
+    try:
+        return int(major) >= MIN_SUPPORTED_MAJOR if major else False
+    except ValueError:
+        return False
+
+
 def resolve_venv(python_dir: Path | None, python_minor: str | None, bl_major: str | None) -> Path | None:
     """Resolve the venv for a (python minor, Baselight major) pair.
 

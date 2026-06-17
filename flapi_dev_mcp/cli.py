@@ -144,6 +144,36 @@ def _cmd_init(args: argparse.Namespace) -> int:
     if not d.release_roots:
         _miss(f"no release builds under {disc.LAYOUT.apps_dir}")
 
+    # BL7+ is required (the wheel-based FLAPI model arrived in 7.0.0.24232).
+    # If only older builds are installed, refuse early with a clear message
+    # rather than letting init write a config that downstream tools can't use.
+    supported_roots = [br for br in d.release_roots if disc.is_supported_version(br.version)]
+    if d.release_roots and not supported_roots:
+        versions = ", ".join(br.version for br in d.release_roots if br.version)
+        print()
+        print(_yellow("flapi-dev-mcp requires Baselight 7+ (none found)."))
+        print(_dim(f"      Installed: {versions}"))
+        print(_dim(f"      The wheel-based FLAPI distribution was introduced in BL 7.0.0.24232;"))
+        print(_dim(f"      BL5/BL6 use a different FLAPI delivery model and aren't supported."))
+        return 1
+
+    # If the "current" symlink points at a BL5/BL6 build but a BL7+ build is
+    # also installed, the config writer will silently promote the default. Tell
+    # the user so the override isn't a surprise later.
+    current = disc.LAYOUT.current_symlink
+    try:
+        current_target_name = current.resolve().name if current.exists() else None
+    except OSError:
+        current_target_name = None
+    current_match = next((br for br in d.release_roots
+                          if br.path.name == current_target_name or br.path == current), None)
+    if current_match and not disc.is_supported_version(current_match.version):
+        chosen = max((br for br in supported_roots), key=lambda b: b.version or "")
+        print()
+        print(_yellow(f"Note: the active install symlink points at {current_match.version} (unsupported);"))
+        print(_dim(f"      defaulting to {chosen.version} instead. Use `flapi-dev-mcp target-running`"))
+        print(_dim(f"      to switch later, or set `default_root` in the config manually."))
+
     # Clone (or update) the canonical enhancements repo as the primary source.
     _heading("Context repo")
     if args.no_repo:

@@ -12,7 +12,8 @@ import sys
 from pathlib import Path
 
 from flapi_dev_mcp.discovery import (
-    APPS_DIR, DATA_ROOT, LAYOUT, Discovery, fl_setup_venv, resolve_layout,
+    APPS_DIR, DATA_ROOT, LAYOUT, Discovery, fl_setup_venv,
+    is_supported_version, resolve_layout,
 )
 
 
@@ -80,9 +81,24 @@ def build_config(
     # not whatever sorts first — with both 6.0 and 7.0 installed, scan order
     # would otherwise pick the wrong one. macOS: /Applications/Baselight/Current;
     # Linux: /usr/fl/baselight.
+    #
+    # BUT: this MCP requires BL7+ (the wheel-based FLAPI distribution arrived
+    # in 7.0.0.24232). If the symlink points at a BL5/BL6 install, transparently
+    # promote to the highest supported (BL7+) root instead. Init prints a note
+    # when this happens. If no supported root exists, init refuses and exits;
+    # default_root is left null here.
     current_path = str(LAYOUT.current_symlink)
-    default_root = (next((r for r in baselight_roots if r["path"] == current_path), None)
-                    or (baselight_roots[0] if baselight_roots else None))
+    symlink_match = next((r for r in baselight_roots if r["path"] == current_path), None)
+    supported = sorted(
+        (r for r in baselight_roots if is_supported_version(r.get("version"))),
+        key=lambda r: r.get("version") or "",
+    )
+    if symlink_match and is_supported_version(symlink_match.get("version")):
+        default_root = symlink_match
+    elif supported:
+        default_root = supported[-1]  # highest BL7+ version
+    else:
+        default_root = baselight_roots[0] if baselight_roots else None  # caller errors
     default_root_path = default_root["path"] if default_root else None
 
     # Resolve the managed venv authoritatively via `fl-setup-flapi-scripts -e`

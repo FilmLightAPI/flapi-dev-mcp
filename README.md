@@ -5,6 +5,10 @@ Baselight) developer. It discovers your local Baselight installation, gathers
 FLAPI context, scaffolds scripts with the right boilerplate, and runs them to
 verify they work. Supports macOS and Linux (FilmLight BL hosts), Python only.
 
+Requires Baselight 7+ (the wheel-based FLAPI distribution introduced in
+7.0.0.24232). On a host whose active install is BL5/BL6 but where a BL7+
+build is also present, `init` automatically targets the BL7+ build.
+
 See [CLAUDE.md](CLAUDE.md) for the full design spec.
 
 
