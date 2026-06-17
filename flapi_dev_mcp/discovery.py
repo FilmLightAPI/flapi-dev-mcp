@@ -386,10 +386,22 @@ def resolve_layout(root_path: Path, kind: str, label: str | None = None) -> Buil
 
 
 def _process_exe(pid: str) -> Path | None:
-    """Resolve a PID to its executable path. Works on macOS (ps) and Linux (/proc)."""
+    """Resolve a PID to its executable path. Works on macOS (ps) and Linux (/proc).
+
+    On Linux, `/proc/<pid>/exe` is a symlink readable only by the process owner
+    or root, so it fails for filmlight@... probing root-owned flapid. Fall back
+    to `/proc/<pid>/cmdline` (world-readable), whose first NUL-separated field
+    carries the absolute path the process was launched with.
+    """
     if sys.platform.startswith("linux"):
         try:
             return Path(os.readlink(f"/proc/{pid}/exe"))
+        except OSError:
+            pass
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                first = f.read().split(b"\x00", 1)[0]
+            return Path(first.decode("utf-8", "replace")) if first else None
         except OSError:
             return None
     try:
@@ -401,6 +413,19 @@ def _process_exe(pid: str) -> Path | None:
     return Path(out.split()[0]) if out else None
 
 
+def _linux_flapid_pids() -> list[str]:
+    """All running flapid PIDs (via pgrep), since `lsof -iTCP:1984` requires
+    root to see other-owned listeners. flapid actually runs under fl-supervise
+    -> flici -> flapid, so we look for any process whose cmdline includes the
+    flapid binary path."""
+    try:
+        r = subprocess.run(["pgrep", "-f", "/bin/flapid"],
+                           capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [p for p in r.stdout.split() if p.isdigit()]
+
+
 def detect_running_build() -> BuildRoot | None:
     """Resolve the Baselight build actually serving on :1984 (the live flapid/app).
 
@@ -408,16 +433,19 @@ def detect_running_build() -> BuildRoot | None:
     build root, and returns its layout. The build you're really talking to,
     which may differ from the configured target.
     """
-    try:
-        r = subprocess.run(["lsof", "-nP", "-iTCP:1984", "-sTCP:LISTEN"],
-                           capture_output=True, text=True, timeout=8)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    pids = []
-    for line in r.stdout.splitlines()[1:]:
-        parts = line.split()
-        if len(parts) > 1 and parts[1].isdigit():
-            pids.append(parts[1])
+    if sys.platform.startswith("linux"):
+        pids = _linux_flapid_pids()
+    else:
+        try:
+            r = subprocess.run(["lsof", "-nP", "-iTCP:1984", "-sTCP:LISTEN"],
+                               capture_output=True, text=True, timeout=8)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        pids = []
+        for line in r.stdout.splitlines()[1:]:
+            parts = line.split()
+            if len(parts) > 1 and parts[1].isdigit():
+                pids.append(parts[1])
     for pid in dict.fromkeys(pids):
         exe = _process_exe(pid)
         if not exe:
@@ -428,7 +456,9 @@ def detect_running_build() -> BuildRoot | None:
                 continue
             kind = "release" if str(app).startswith(str(LAYOUT.apps_dir)) else "dev-build"
             return resolve_layout(app, kind=kind)
-        # Linux: walk up until we hit a /usr/fl/baselight-* directory.
+        # Linux: walk up until we hit a /usr/fl/baselight-* directory. The
+        # cmdline path on this branch is something like
+        # /usr/fl/baselight-6.0.25544/bin/flapid; its grandparent is the build.
         root = next(
             (anc for anc in [exe, *exe.parents]
              if anc.parent == LAYOUT.apps_dir and anc.name.startswith("baselight-")),
