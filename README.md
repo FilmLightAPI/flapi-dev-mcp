@@ -25,7 +25,7 @@ there's no venv to manage by hand.
 #    (either OS:  curl -LsSf https://astral.sh/uv/install.sh | sh)
 
 # 2. Install the server as a tool, straight from the git URL:
-uv tool install git+https://github.com/JasonMakes801/flapi-dev-mcp
+uv tool install git+https://github.com/FilmLightAPI/flapi-dev-mcp
 uv tool update-shell                 # one-time: puts the command on PATH (restart your shell)
 
 # 3. Onboard (discovers Baselight, clones the examples repo, writes config):
@@ -59,7 +59,7 @@ right in the folder as `.venv`, so each project stays self-contained.)
 ```bash
 uv tool upgrade flapi-dev-mcp        # pulls the latest release
 # if a change doesn't show up, force a clean re-fetch:
-uv tool install --reinstall git+https://github.com/JasonMakes801/flapi-dev-mcp
+uv tool install --reinstall git+https://github.com/FilmLightAPI/flapi-dev-mcp
 ```
 
 ## Contributing

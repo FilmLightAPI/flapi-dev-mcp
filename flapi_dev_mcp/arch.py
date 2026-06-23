@@ -255,7 +255,7 @@ def _print_remediation_mismatch(r: GateResult, ran_installer: bool) -> None:
     step += 1
     print(f"     Verify with:  which uv     (should print ~/.local/bin/uv)")
     print(f"  {step}. Reinstall the MCP itself under the new uv:")
-    print(_dim(f"       uv tool install --reinstall git+https://github.com/JasonMakes801/flapi-dev-mcp"))
+    print(_dim(f"       uv tool install --reinstall git+https://github.com/FilmLightAPI/flapi-dev-mcp"))
     step += 1
     print(f"  {step}. Re-run:  flapi-dev-mcp init")
 
