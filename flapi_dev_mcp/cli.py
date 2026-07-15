@@ -268,17 +268,21 @@ def _cmd_init(args: argparse.Namespace) -> int:
     if running and running.version:
         target_layout = disc.resolve_layout(Path(cfg["default_root"]), "release") if cfg["default_root"] else None
         target_v = target_layout.version if target_layout else None
+        target_p = target_layout.product if target_layout else None
         _heading("Running flapid")
-        if target_v and running.version != target_v:
-            print(f"  {_yellow('•')} mismatch: targeting {target_v}, but flapid is running build {running.version}")
+        product_mismatch = target_p and running.product and target_p != running.product
+        version_mismatch = target_v and target_v != running.version
+        if product_mismatch or version_mismatch:
+            print(f"  {_yellow('•')} mismatch: targeting {target_p} {target_v}, "
+                  f"but flapid is running {running.product} {running.version}")
             if target_layout is not None:
                 base = disc.LAYOUT.resolve_base(target_layout.path)
                 if base is not None:
                     print(_dim(f"      match the server to your target:  "
                                f"sudo {base}/bin/fl-service restart flapi"))
-            print(_dim(f"      or switch target to the running build:  flapi-dev-mcp target-running"))
+            print(_dim("      or switch target to the running build:  flapi-dev-mcp target-running"))
         else:
-            _ok("running build matches target", running.version)
+            _ok("running build matches target", f"{running.product} {running.version}")
     if not cfg["baselight_roots"]:
         print(_yellow("  No build roots configured. Add one: "
                       "flapi-dev-mcp config add-baselight-root <path> --kind dev-build"))

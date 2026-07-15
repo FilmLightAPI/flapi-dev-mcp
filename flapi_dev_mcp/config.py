@@ -115,18 +115,32 @@ def build_config(
             return m
         return None
 
+    def _highest_supported(product: str) -> dict | None:
+        matching = [r for r in supported if (r.get("product") or "baselight") == product]
+        return matching[-1] if matching else None
+
     default_root = None
+    # 1. Running product's live symlink target (best case: fl-vers points at
+    #    a v7+ of the product currently serving flapid).
     if running_product:
         default_root = _symlink_match(running_product)
+    # 2. Running product's highest v7+ version — covers the case where the
+    #    symlink hasn't been updated (e.g. fresh Daylight install still
+    #    leaves the daylight symlink on an older Daylight version).
+    if default_root is None and running_product:
+        default_root = _highest_supported(running_product)
+    # 3. Any product's live symlink target that's v7+.
     if default_root is None:
         for prod in LAYOUT.products:
             default_root = _symlink_match(prod.name)
             if default_root:
                 break
+    # 4. Highest v7+ across all products.
     if default_root is None and supported:
-        default_root = supported[-1]  # highest BL7+ version across products
+        default_root = supported[-1]
+    # 5. Anything, so init can error out cleanly.
     if default_root is None and baselight_roots:
-        default_root = baselight_roots[0]  # caller (init) will error out cleanly
+        default_root = baselight_roots[0]
     default_root_path = default_root["path"] if default_root else None
 
     # Resolve the managed venv authoritatively via `fl-setup-flapi-scripts -e`
