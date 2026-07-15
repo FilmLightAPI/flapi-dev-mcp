@@ -69,17 +69,26 @@ class PlatformLayout:
         return next((p for p in self.products if p.name == name), None)
 
     def product_for_path(self, path: Path) -> "ProductLayout | None":
-        """Return the ProductLayout whose apps_dir contains this build root
-        (or whose current_symlink is this path)."""
+        """Return the ProductLayout whose apps_dir contains this build root.
+
+        On macOS each product has its own apps_dir (`/Applications/Baselight`
+        vs `/Applications/Daylight`) so containment alone disambiguates. On
+        Linux both share `/usr/fl/`, so we additionally check that the first
+        path segment beneath apps_dir matches the product's child_glob
+        (`baselight-*` vs `daylight-*`) — otherwise every Linux path would
+        resolve to Baselight (the first product tried)."""
+        import fnmatch
         p = Path(path)
         for prod in self.products:
             if prod.current_symlink == p:
                 return prod
             try:
-                p.relative_to(prod.apps_dir)
-                return prod
+                rel = p.relative_to(prod.apps_dir)
             except ValueError:
                 continue
+            first = rel.parts[0] if rel.parts else ""
+            if fnmatch.fnmatch(first, prod.apps_child_glob):
+                return prod
         return None
 
 

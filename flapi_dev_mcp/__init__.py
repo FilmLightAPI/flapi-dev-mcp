@@ -5,4 +5,4 @@ See CLAUDE.md for the full project spec. This package provides:
   - a CLI (`init`, `update`, `config`) for onboarding and configuration
 """
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
