@@ -1,7 +1,8 @@
 # FLAPI Developer MCP
 
-A local MCP server for Claude Code that makes Claude an expert FLAPI (FilmLight
-Baselight / Daylight) developer. It discovers your local Baselight and Daylight
+A local MCP server for any MCP-aware coding agent (Claude Code, Antigravity,
+OpenAI Codex, OpenCode, Cursor, Continue) that makes it an expert FLAPI
+(FilmLight Baselight / Daylight) developer. It discovers your local Baselight and Daylight
 installations, gathers FLAPI context, scaffolds scripts with the right
 boilerplate, and runs them to verify they work. Supports macOS and Linux
 (FilmLight BL hosts), Python only.
@@ -23,9 +24,8 @@ there's no venv to manage by hand.
 
 ```bash
 # 1. Install uv if you don't have it:
-#    macOS:  brew install uv
+#    macOS:  brew install uv     (or use the curl installer below)
 #    Linux:  curl -LsSf https://astral.sh/uv/install.sh | sh
-#    (either OS:  curl -LsSf https://astral.sh/uv/install.sh | sh)
 
 # 2. Install the server as a tool, straight from the git URL:
 uv tool install git+https://github.com/FilmLightAPI/flapi-dev-mcp
