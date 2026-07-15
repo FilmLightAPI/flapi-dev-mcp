@@ -148,63 +148,71 @@ def _cmd_init(args: argparse.Namespace) -> int:
     else:
         _miss(f"FilmLight data root ({disc.LAYOUT.data_root})")
 
+    # Group discovery output by product (baselight, daylight). Same layout on
+    # each side — the product label is what tells the user which is which.
     _heading(f"Release build roots ({len(d.release_roots)} found)")
     for br in d.release_roots:
-        # On macOS .app is the resolved bundle; on Linux it's None and the build
-        # root *is* the path the user sees.
-        _ok(f"{br.version}", br.app or br.path)
+        _ok(f"{br.product} {br.version}", br.app or br.path)
         print(_dim(f"      wheel: {br.wheel.name if br.wheel else '—'}  flapid: {'yes' if br.flapid else 'no'}  "
                    f"docs: {'yes' if br.docs_html else 'no'}  schema: {'yes' if br.schema else 'no'}  "
                    f"examples: {'yes' if br.examples else 'no'}"))
     if not d.release_roots:
-        _miss(f"no release builds under {disc.LAYOUT.apps_dir}")
+        apps_dirs = ", ".join(str(p.apps_dir) for p in disc.LAYOUT.products)
+        _miss(f"no release builds under {apps_dirs}")
 
     # BL7+ is required (the wheel-based FLAPI model arrived in 7.0.0.24232).
     # If only older builds are installed, refuse early with a clear message
     # rather than letting init write a config that downstream tools can't use.
     supported_roots = [br for br in d.release_roots if disc.is_supported_version(br.version)]
     if d.release_roots and not supported_roots:
-        versions = ", ".join(br.version for br in d.release_roots if br.version)
+        versions = ", ".join(f"{br.product} {br.version}" for br in d.release_roots if br.version)
         print()
-        print(_yellow("flapi-dev-mcp requires Baselight 7+ (none found)."))
+        print(_yellow("flapi-dev-mcp requires Baselight/Daylight 7+ (none found)."))
         print(_dim(f"      Installed: {versions}"))
-        print(_dim(f"      The wheel-based FLAPI distribution was introduced in BL 7.0.0.24232;"))
-        print(_dim(f"      BL5/BL6 use a different FLAPI delivery model and aren't supported."))
+        print(_dim("      The wheel-based FLAPI distribution was introduced in 7.0.0.24232."))
+        print(_dim("      Older Baselight/Daylight use a different FLAPI delivery model."))
         return 1
 
-    # If a live flapid is running but it's BL5/BL6, scripts the agent writes
-    # will hit a wheel-vs-server version mismatch the moment they connect.
-    # Block init and tell the user to switch with `fl-vers` first; once the
-    # live Baselight is BL7+, init will sail through.
+    # If a live flapid is running but it's BL5/BL6 (either Baselight or Daylight),
+    # scripts the agent writes will hit a wheel-vs-server version mismatch the
+    # moment they connect. Block init and tell the user to switch with `fl-vers`
+    # first — once the live product is version 7+, init will sail through.
     running_pre = disc.detect_running_build()
     if running_pre and running_pre.version and not disc.is_supported_version(running_pre.version):
-        avail = ", ".join(br.version for br in supported_roots) or "(none installed)"
+        avail = ", ".join(f"{br.product} {br.version}" for br in supported_roots) or "(none installed)"
         print()
-        print(_yellow(f"The live Baselight (flapid on :1984) is {running_pre.version}, which isn't supported."))
-        print(_dim(f"      Switch to a BL7+ build first, then re-run `flapi-dev-mcp init`."))
+        print(_yellow(f"The live {running_pre.product.capitalize()} (flapid on :1984) is "
+                      f"{running_pre.version}, which isn't supported."))
+        print(_dim("      Switch to a version 7+ build first, then re-run `flapi-dev-mcp init`."))
         print(_dim(f"      Use FilmLight's version switcher:  {_fl_vers_cmd(supported_roots)}"))
-        print(_dim(f"      BL7+ builds available on this host:  {avail}"))
+        print(_dim(f"      7+ builds available on this host:  {avail}"))
         return 1
 
-    # If the "current" symlink points at a BL5/BL6 build but a BL7+ build is
-    # also installed, the config writer will silently promote the default. Tell
-    # the user so the override isn't a surprise later. We can't rely on the BL6
-    # build being in d.release_roots — it isn't (no wheel ⇒ filtered out at
-    # discovery) — so resolve the symlink ourselves and parse the version off
-    # the target dir name.
-    current = disc.LAYOUT.current_symlink
-    try:
-        target_name = current.resolve().name if current.exists() else ""
-    except OSError:
-        target_name = ""
-    m = re.search(r"baselight-(.+)$", target_name)
-    target_version = m.group(1) if m else None
-    if target_version and not disc.is_supported_version(target_version) and supported_roots:
-        chosen = max(supported_roots, key=lambda b: b.version or "")
-        print()
-        print(_yellow(f"Note: the active install symlink ({current}) points at {target_version} (BL5/BL6, no FLAPI wheel);"))
-        print(_dim(f"      defaulting to {chosen.version} instead. To make this permanent system-wide,"))
-        print(_dim(f"      switch the live Baselight with `{_fl_vers_cmd(supported_roots)}` and re-run init."))
+    # Per-product current-symlink promotion notes. For each product whose
+    # `<product>` symlink points at a v5/v6 build but where a v7+ build is
+    # also installed, tell the user the config will default to the newer
+    # build instead. Older builds don't appear in d.release_roots (no wheel),
+    # so we resolve the symlink ourselves and parse the version off the
+    # target dir name.
+    for prod in disc.LAYOUT.products:
+        current = prod.current_symlink
+        try:
+            target_name = current.resolve().name if current.exists() else ""
+        except OSError:
+            target_name = ""
+        m = re.search(rf"{prod.name}-(.+)$", target_name)
+        target_version = m.group(1) if m else None
+        if target_version and not disc.is_supported_version(target_version):
+            product_supported = [b for b in supported_roots if b.product == prod.name]
+            if not product_supported:
+                continue
+            chosen = max(product_supported, key=lambda b: b.version or "")
+            print()
+            print(_yellow(f"Note: the {prod.name} symlink ({current}) points at {target_version} "
+                          f"(v5/v6, no FLAPI wheel);"))
+            print(_dim(f"      defaulting to {prod.name} {chosen.version} instead. To make this"))
+            print(_dim(f"      permanent system-wide, switch with `{_fl_vers_cmd(supported_roots)}`"))
+            print(_dim("      and re-run init."))
 
     # Clone (or update) the canonical enhancements repo as the primary source.
     _heading("Context repo")
@@ -338,26 +346,26 @@ def _cmd_target_running(args: argparse.Namespace) -> int:
     # br.path IS the build root. Use br.app if present, else br.path.
     target = br.app if (br and br.app) else (br.path if br else None)
     if br is None or target is None:
-        print("Could not detect a running Baselight on :1984 (is it running?).", file=sys.stderr)
+        print("Could not detect a running Baselight/Daylight on :1984 (is it running?).", file=sys.stderr)
         return 1
     if not disc.is_supported_version(br.version):
         supported = [b for b in disc.discover_release_roots() if disc.is_supported_version(b.version)]
-        print(f"Running Baselight is {br.version}, which isn't supported "
-              "(flapi-dev-mcp requires BL7+).", file=sys.stderr)
+        print(f"Running {br.product.capitalize()} is {br.version}, which isn't supported "
+              "(flapi-dev-mcp requires version 7+).", file=sys.stderr)
         print(f"Switch the live version with `{_fl_vers_cmd(supported)}` first, "
               "then re-run this command.", file=sys.stderr)
         return 1
     path = str(target)
     roots = cfg.setdefault("baselight_roots", [])
     if not any(r.get("path") == path for r in roots):
-        roots.append({"kind": br.kind, "path": path, "version": br.version,
-                      "label": "running", "enabled": True})
+        roots.append({"kind": br.kind, "product": br.product, "path": path,
+                      "version": br.version, "label": "running", "enabled": True})
     cfg["default_root"] = path
     dr = disc.discover_data_root()
     av = disc.resolve_venv(dr.python_dir, dr.python_minor, disc.baselight_major(br.version))
     cfg.setdefault("baselight", {})["active_venv"] = str(av) if av else None
     cfgmod.save_config(cfg)
-    print(f"Now targeting the running build {br.version}")
+    print(f"Now targeting the running {br.product} build {br.version}")
     print(f"  app:    {path}")
     print(f"  wheel:  {br.wheel}")
     print(f"  venv:   {av}")

@@ -1,13 +1,16 @@
 # FLAPI Developer MCP
 
 A local MCP server for Claude Code that makes Claude an expert FLAPI (FilmLight
-Baselight) developer. It discovers your local Baselight installation, gathers
-FLAPI context, scaffolds scripts with the right boilerplate, and runs them to
-verify they work. Supports macOS and Linux (FilmLight BL hosts), Python only.
+Baselight / Daylight) developer. It discovers your local Baselight and Daylight
+installations, gathers FLAPI context, scaffolds scripts with the right
+boilerplate, and runs them to verify they work. Supports macOS and Linux
+(FilmLight BL hosts), Python only.
 
-Requires Baselight 7+ (the wheel-based FLAPI distribution introduced in
-7.0.0.24232). On a host whose active install is BL5/BL6 but where a BL7+
-build is also present, `init` automatically targets the BL7+ build.
+Requires Baselight or Daylight **7+** (the wheel-based FLAPI distribution
+introduced in 7.0.0.24232). Both products can be installed side by side; the
+MCP targets whichever is currently live. On a host whose active install is
+v5/v6 but a v7+ build is also present, `init` automatically targets the
+v7+ build.
 
 See [CLAUDE.md](CLAUDE.md) for the full design spec.
 
@@ -28,7 +31,7 @@ there's no venv to manage by hand.
 uv tool install git+https://github.com/FilmLightAPI/flapi-dev-mcp
 uv tool update-shell                 # one-time: puts the command on PATH (restart your shell)
 
-# 3. Onboard (discovers Baselight, clones the examples repo, writes config):
+# 3. Onboard (discovers Baselight/Daylight, clones the examples repo, writes config):
 flapi-dev-mcp init
 
 # 4. Register with Claude Code, user scope = available in every project:

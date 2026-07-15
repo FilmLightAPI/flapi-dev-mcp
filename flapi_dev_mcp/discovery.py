@@ -35,10 +35,22 @@ _VERSION_RE = re.compile(r"(\d+\.\d+)")
 # --------------------------------------------------------------------------- #
 
 @dataclass(frozen=True)
+class ProductLayout:
+    """Per-product info. FLAPI ships as part of both Baselight and Daylight.
+    Everything below is per-product because the two ship independently.
+
+    On a given host either can be the "live" product (whichever fl-vers selected).
+    They share flapid port 1984 — only one can be running at a time."""
+    name: str                         # 'baselight' | 'daylight'
+    apps_dir: Path                    # dir containing versioned installs
+    apps_child_glob: str              # glob under apps_dir for versioned dirs
+    current_symlink: Path             # stable "current" symlink for this product
+
+
+@dataclass(frozen=True)
 class PlatformLayout:
     data_root: Path
-    apps_dir: Path                    # where installed versions live
-    apps_child_glob: str              # glob under apps_dir for version dirs/roots
+    products: tuple[ProductLayout, ...]   # baselight, daylight (in enumeration order)
     python_dir: Path                  # parent of <pyver>...-venv dirs
     # Script-deploy dirs are listed as candidates in preference order. The
     # cross-platform convention `/vol/.support/{scripts,server-scripts}` is
@@ -51,8 +63,24 @@ class PlatformLayout:
     prefs_keys: tuple[str, ...]       # search order inside the prefs files
     docs_html_rel: tuple[str, ...]    # candidate relative paths to rendered Python docs
     token_path: Path                  # FLAPI auth token
-    current_symlink: Path             # stable "current build" symlink; may not exist
     resolve_base: Callable[[Path], "Path | None"]  # root -> dir with share/, bin/, doc/
+
+    def product_by_name(self, name: str) -> "ProductLayout | None":
+        return next((p for p in self.products if p.name == name), None)
+
+    def product_for_path(self, path: Path) -> "ProductLayout | None":
+        """Return the ProductLayout whose apps_dir contains this build root
+        (or whose current_symlink is this path)."""
+        p = Path(path)
+        for prod in self.products:
+            if prod.current_symlink == p:
+                return prod
+            try:
+                p.relative_to(prod.apps_dir)
+                return prod
+            except ValueError:
+                continue
+        return None
 
 
 def _resolve_base_mac(root: Path) -> Path | None:
@@ -73,10 +101,23 @@ def _platform_layout() -> PlatformLayout:
     vol_server = Path("/vol/.support/server-scripts")
     if sys.platform == "darwin":
         data = Path("/Library/Application Support/FilmLight")
+        products = (
+            ProductLayout(
+                name="baselight",
+                apps_dir=Path("/Applications/Baselight"),
+                apps_child_glob="*",
+                current_symlink=Path("/Applications/Baselight/Current"),
+            ),
+            ProductLayout(
+                name="daylight",
+                apps_dir=Path("/Applications/Daylight"),
+                apps_child_glob="*",
+                current_symlink=Path("/Applications/Daylight/Current"),
+            ),
+        )
         return PlatformLayout(
             data_root=data,
-            apps_dir=Path("/Applications/Baselight"),
-            apps_child_glob="*",
+            products=products,
             python_dir=data / "python",
             ui_scripts_candidates=(vol_ui, data / "scripts"),
             server_scripts_candidates=(vol_server, data / "server-scripts"),
@@ -85,15 +126,27 @@ def _platform_layout() -> PlatformLayout:
             prefs_keys=("flapi_python_path__Mac", "flapi_python_path"),
             docs_html_rel=("doc/flapi/python.html",),
             token_path=home / "Library" / "Preferences" / "FilmLight" / "flapi-token",
-            current_symlink=Path("/Applications/Baselight/Current"),
             resolve_base=_resolve_base_mac,
         )
     if sys.platform.startswith("linux"):
         fl = Path("/usr/fl")
+        products = (
+            ProductLayout(
+                name="baselight",
+                apps_dir=fl,
+                apps_child_glob="baselight-*",
+                current_symlink=fl / "baselight",
+            ),
+            ProductLayout(
+                name="daylight",
+                apps_dir=fl,
+                apps_child_glob="daylight-*",
+                current_symlink=fl / "daylight",
+            ),
+        )
         return PlatformLayout(
             data_root=fl,
-            apps_dir=fl,
-            apps_child_glob="baselight-*",
+            products=products,
             python_dir=fl / "python",
             ui_scripts_candidates=(vol_ui, fl / "scripts"),
             server_scripts_candidates=(vol_server, fl / "server-scripts"),
@@ -102,7 +155,6 @@ def _platform_layout() -> PlatformLayout:
             prefs_keys=("flapi_python_path__Linux", "flapi_python_path"),
             docs_html_rel=("doc/python.html", "doc/flapi/python.html"),
             token_path=home / ".filmlight" / "flapi-token",
-            current_symlink=fl / "baselight",
             resolve_base=_resolve_base_linux,
         )
     raise RuntimeError(f"unsupported platform: {sys.platform}")
@@ -110,10 +162,11 @@ def _platform_layout() -> PlatformLayout:
 
 LAYOUT = _platform_layout()
 
-# Back-compat aliases. Existing callers (config.py, app_scripts.py, …) import
-# these directly; keep them stable so this diff stays surgical.
+# Back-compat aliases. Older callers imported DATA_ROOT / APPS_DIR directly.
+# APPS_DIR remains Baselight's apps_dir specifically — new code should use
+# LAYOUT.products or LAYOUT.product_by_name('baselight').apps_dir.
 DATA_ROOT = LAYOUT.data_root
-APPS_DIR = LAYOUT.apps_dir
+APPS_DIR = LAYOUT.product_by_name("baselight").apps_dir
 
 
 # --------------------------------------------------------------------------- #
@@ -288,6 +341,7 @@ def discover_data_root() -> DataRoot:
 class BuildRoot:
     path: Path                 # the root as configured
     kind: str                  # 'release' | 'dev-build' | 'dev-source'
+    product: str = "baselight" # 'baselight' | 'daylight'
     label: str | None = None
     app: Path | None = None    # resolved .app bundle (macOS only; None on Linux)
     version: str | None = None
@@ -305,11 +359,40 @@ class BuildRoot:
         return self.wheel is not None and self.flapid is not None
 
 
-def find_app_bundle(path: Path) -> Path | None:
-    """Resolve a Baselight .app bundle from a configured root path (macOS).
+_PRODUCT_APP_PATTERN = re.compile(r"^(Baselight|Daylight)-(.+)\.app$")
+_PRODUCT_DIR_PATTERN = re.compile(r"^(baselight|daylight)-(.+)$")
+
+
+def _infer_product(root_path: Path) -> str:
+    """Best-effort product name from a build-root path.
+
+    Tries in order: path resides under a known product's apps_dir, the resolved
+    directory name matches a `(baselight|daylight)-X.Y.Z` pattern, or the .app
+    name matches `(Baselight|Daylight)-...`. Defaults to 'baselight' if nothing
+    matches — safe default preserving prior behavior."""
+    prod = LAYOUT.product_for_path(root_path)
+    if prod:
+        return prod.name
+    try:
+        real = Path(root_path).resolve()
+    except OSError:
+        real = Path(root_path)
+    m = _PRODUCT_DIR_PATTERN.match(real.name) or _PRODUCT_DIR_PATTERN.match(Path(root_path).name)
+    if m:
+        return m.group(1)
+    for candidate in [real, *real.parents]:
+        if candidate.suffix == ".app":
+            m2 = _PRODUCT_APP_PATTERN.match(candidate.name)
+            if m2:
+                return m2.group(1).lower()
+    return "baselight"
+
+
+def find_app_bundle(path: Path, product: str | None = None) -> Path | None:
+    """Resolve a Baselight/Daylight .app bundle from a configured root path (macOS).
 
     - root itself is an .app           -> use it
-    - root contains Baselight-*.app    -> use that (e.g. /Applications/Baselight/<ver>/)
+    - root contains <Product>-*.app    -> use that (e.g. /Applications/Baselight/<ver>/)
     - dev-source checkout              -> find the built .app under build/**
 
     Returns None on Linux — there are no .app bundles there; callers should
@@ -320,36 +403,38 @@ def find_app_bundle(path: Path) -> Path | None:
         return path
     if not path.exists():
         return None
-    direct = sorted(path.glob("Baselight-*.app"))
+    prod = (product or _infer_product(path)).capitalize()
+    direct = sorted(path.glob(f"{prod}-*.app"))
     if direct:
         return direct[0]
-    deep = sorted(path.glob("build/**/Baselight-*.app"))
+    deep = sorted(path.glob(f"build/**/{prod}-*.app"))
     return deep[0] if deep else None
 
 
-def resolve_layout(root_path: Path, kind: str, label: str | None = None) -> BuildRoot:
+def resolve_layout(root_path: Path, kind: str, label: str | None = None,
+                   product: str | None = None) -> BuildRoot:
     """Resolve every sub-path the MCP needs from a build root."""
-    br = BuildRoot(path=Path(root_path), kind=kind, label=label)
+    prod = product or _infer_product(root_path)
+    br = BuildRoot(path=Path(root_path), kind=kind, label=label, product=prod)
     base = LAYOUT.resolve_base(Path(root_path))
     if base is None:
         return br
 
     if sys.platform == "darwin":
-        app = find_app_bundle(Path(root_path))
+        app = find_app_bundle(Path(root_path), product=prod)
         br.app = app
-        m = re.search(r"Baselight-(.+)\.app$", app.name) if app else None
-        br.version = m.group(1) if m else None
+        m = _PRODUCT_APP_PATTERN.match(app.name) if app else None
+        br.version = m.group(2) if m else None
     else:
         br.app = None
-        # /usr/fl/baselight-7.0.1.25297 → 7.0.1.25297
-        # /usr/fl/baselight (symlink → baselight-X.Y.Z) → X.Y.Z, by
-        # resolving the symlink first; falls back to the literal name.
+        # /usr/fl/{baselight,daylight}-X.Y.Z → X.Y.Z
+        # /usr/fl/{baselight,daylight} (symlink → …-X.Y.Z) → X.Y.Z
         try:
             real_name = Path(root_path).resolve().name
         except OSError:
             real_name = Path(root_path).name
-        m = re.search(r"baselight-(.+)$", real_name) or re.search(r"baselight-(.+)$", Path(root_path).name)
-        br.version = m.group(1) if m else None
+        m = _PRODUCT_DIR_PATTERN.match(real_name) or _PRODUCT_DIR_PATTERN.match(Path(root_path).name)
+        br.version = m.group(2) if m else None
 
     def first(parent: Path, pattern: str) -> Path | None:
         if not parent.is_dir():
@@ -454,16 +539,18 @@ def detect_running_build() -> BuildRoot | None:
             app = next((anc for anc in [exe, *exe.parents] if anc.suffix == ".app"), None)
             if app is None:
                 continue
-            kind = "release" if str(app).startswith(str(LAYOUT.apps_dir)) else "dev-build"
+            prod = LAYOUT.product_for_path(app)
+            in_known_apps_dir = prod is not None
+            kind = "release" if in_known_apps_dir else "dev-build"
             return resolve_layout(app, kind=kind)
-        # Linux: walk up until we hit a /usr/fl/baselight-* directory. The
-        # cmdline path on this branch is something like
-        # /usr/fl/baselight-6.0.25544/bin/flapid; its grandparent is the build.
-        root = next(
-            (anc for anc in [exe, *exe.parents]
-             if anc.parent == LAYOUT.apps_dir and anc.name.startswith("baselight-")),
-            None,
-        )
+        # Linux: walk up until we hit a /usr/fl/{baselight,daylight}-* directory.
+        # The cmdline path is something like /usr/fl/baselight-6.0.25544/bin/flapid;
+        # its grandparent is the build root, and works identically for daylight.
+        root = None
+        for anc in [exe, *exe.parents]:
+            if _PRODUCT_DIR_PATTERN.match(anc.name) and LAYOUT.product_for_path(anc):
+                root = anc
+                break
         if root is None:
             continue
         return resolve_layout(root, kind="release")
@@ -471,25 +558,26 @@ def detect_running_build() -> BuildRoot | None:
 
 
 def discover_release_roots() -> list[BuildRoot]:
-    """Find installed release builds.
+    """Find installed release builds across all products (Baselight + Daylight).
 
-    macOS: subdirs of /Applications/Baselight/ (skipping the `Current` symlink).
-    Linux: siblings under /usr/fl/ matching `baselight-*` (skipping the
-    `baselight` symlink).
-    """
-    if not LAYOUT.apps_dir.is_dir():
-        return []
+    macOS: subdirs of `/Applications/{Baselight,Daylight}/` (skipping the
+    `Current` symlink).
+    Linux: siblings under `/usr/fl/` matching `baselight-*` or `daylight-*`
+    (skipping the `baselight` and `daylight` symlinks)."""
     roots: list[BuildRoot] = []
-    for child in sorted(LAYOUT.apps_dir.glob(LAYOUT.apps_child_glob)):
-        if child.is_symlink():
+    for prod in LAYOUT.products:
+        if not prod.apps_dir.is_dir():
             continue
-        if child.name in ("Current", "baselight"):
-            continue
-        if not child.is_dir():
-            continue
-        br = resolve_layout(child, kind="release")
-        if LAYOUT.resolve_base(child) is not None and br.wheel is not None:
-            roots.append(br)
+        for child in sorted(prod.apps_dir.glob(prod.apps_child_glob)):
+            if child.is_symlink():
+                continue
+            if child.name in ("Current", "baselight", "daylight"):
+                continue
+            if not child.is_dir():
+                continue
+            br = resolve_layout(child, kind="release", product=prod.name)
+            if LAYOUT.resolve_base(child) is not None and br.wheel is not None:
+                roots.append(br)
     return roots
 
 

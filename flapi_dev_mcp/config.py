@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 from flapi_dev_mcp.discovery import (
-    APPS_DIR, DATA_ROOT, LAYOUT, Discovery, fl_setup_venv,
+    APPS_DIR, DATA_ROOT, LAYOUT, Discovery, detect_running_build, fl_setup_venv,
     is_supported_version, resolve_layout,
 )
 
@@ -42,15 +42,21 @@ def save_config(cfg: dict) -> Path:
     return CONFIG_PATH
 
 
-def _release_root_path(version_dir: Path) -> str:
+def _release_root_path(version_dir: Path, product: str) -> str:
     """Prefer the stable "current build" symlink so config survives upgrades.
 
-    macOS: /Applications/Baselight/Current
-    Linux: /usr/fl/baselight
-    """
-    current = LAYOUT.current_symlink
-    if current.is_symlink() and current.resolve() == version_dir.resolve():
-        return str(current)
+    Per-product: baselight → e.g. /usr/fl/baselight (Linux) or
+    /Applications/Baselight/Current (macOS); daylight → /usr/fl/daylight or
+    /Applications/Daylight/Current. Falls back to the versioned dir if the
+    product's symlink doesn't point at it."""
+    prod = LAYOUT.product_by_name(product)
+    if prod:
+        current = prod.current_symlink
+        try:
+            if current.is_symlink() and current.resolve() == version_dir.resolve():
+                return str(current)
+        except OSError:
+            pass
     return str(version_dir)
 
 
@@ -67,7 +73,8 @@ def build_config(
     for br in disc.release_roots:
         baselight_roots.append({
             "kind": "release",
-            "path": _release_root_path(br.path),
+            "product": br.product,
+            "path": _release_root_path(br.path, br.product),
             "version": br.version,
             "enabled": True,
         })
@@ -77,28 +84,49 @@ def build_config(
             entry["label"] = label
         baselight_roots.append(entry)
 
-    # Default to the build the "current" symlink points at (the active version),
-    # not whatever sorts first — with both 6.0 and 7.0 installed, scan order
-    # would otherwise pick the wrong one. macOS: /Applications/Baselight/Current;
-    # Linux: /usr/fl/baselight.
-    #
-    # BUT: this MCP requires BL7+ (the wheel-based FLAPI distribution arrived
-    # in 7.0.0.24232). If the symlink points at a BL5/BL6 install, transparently
-    # promote to the highest supported (BL7+) root instead. Init prints a note
-    # when this happens. If no supported root exists, init refuses and exits;
-    # default_root is left null here.
-    current_path = str(LAYOUT.current_symlink)
-    symlink_match = next((r for r in baselight_roots if r["path"] == current_path), None)
+    # Default-root selection, across products (Baselight + Daylight both
+    # possible). Priority:
+    #   1. Running product's current symlink target, if BL7+ (matches what
+    #      flapid is actually serving right now).
+    #   2. Any product's current-symlink target that is BL7+ (whichever fl-vers
+    #      selected as the live one for that product).
+    #   3. Highest BL7+ across all products (promotion case: symlink points at
+    #      an older version but newer builds exist alongside).
+    # Init prints a note when the current-symlink target had to be promoted
+    # past a BL5/BL6 install. If no supported root exists, init refuses.
+    running = detect_running_build()
+    running_product = running.product if running else None
+    per_product_current = {
+        prod.name: str(prod.current_symlink) for prod in LAYOUT.products
+    }
     supported = sorted(
         (r for r in baselight_roots if is_supported_version(r.get("version"))),
         key=lambda r: r.get("version") or "",
     )
-    if symlink_match and is_supported_version(symlink_match.get("version")):
-        default_root = symlink_match
-    elif supported:
-        default_root = supported[-1]  # highest BL7+ version
-    else:
-        default_root = baselight_roots[0] if baselight_roots else None  # caller errors
+
+    def _symlink_match(product: str) -> dict | None:
+        target = per_product_current.get(product)
+        if not target:
+            return None
+        m = next((r for r in baselight_roots
+                  if r.get("path") == target
+                  and (r.get("product") or "baselight") == product), None)
+        if m and is_supported_version(m.get("version")):
+            return m
+        return None
+
+    default_root = None
+    if running_product:
+        default_root = _symlink_match(running_product)
+    if default_root is None:
+        for prod in LAYOUT.products:
+            default_root = _symlink_match(prod.name)
+            if default_root:
+                break
+    if default_root is None and supported:
+        default_root = supported[-1]  # highest BL7+ version across products
+    if default_root is None and baselight_roots:
+        default_root = baselight_roots[0]  # caller (init) will error out cleanly
     default_root_path = default_root["path"] if default_root else None
 
     # Resolve the managed venv authoritatively via `fl-setup-flapi-scripts -e`

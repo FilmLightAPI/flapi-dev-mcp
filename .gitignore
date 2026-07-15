@@ -8,3 +8,8 @@ dist/
 
 # Local Zulip post drafts / replies — not part of the project
 POST_*.md
+
+# Local marketing / datasheet drafts under review by FL marketing —
+# they live alongside the code but aren't part of it.
+DATASHEET*.md
+FL-*.pdf
