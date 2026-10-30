@@ -47,6 +47,11 @@ def _make_app(app: Path, version: str, venv: Path) -> None:
     whl.parent.mkdir(parents=True, exist_ok=True)
     whl.write_text("")
     (c / "share" / "flapi" / "examples" / "python").mkdir(parents=True)
+    schema = c / "share" / "flapi" / "schema" / "schema.json"
+    schema.parent.mkdir(parents=True)
+    schema.write_text('{"classes": {}}')
+    (c / "doc" / "flapi").mkdir(parents=True)
+    (c / "doc" / "flapi" / "python.html").write_text("<html></html>")
 
 
 @pytest.fixture

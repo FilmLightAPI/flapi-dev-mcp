@@ -13,3 +13,4 @@ POST_*.md
 # they live alongside the code but aren't part of it.
 DATASHEET*.md
 FL-*.pdf
+evals/results/

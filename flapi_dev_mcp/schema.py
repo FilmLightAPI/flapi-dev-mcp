@@ -21,11 +21,15 @@ def active_schema_path() -> Path | None:
     cfg = cfgmod.load_config()
     roots = (cfg or {}).get("baselight_roots") or []
     default = (cfg or {}).get("default_root")
-    ordered = sorted(roots, key=lambda r: r.get("path") != default)  # default first
-    for r in ordered:
+    # Only the target build: another build's schema would describe a different
+    # API version. Fall back to other builds only when no target is configured.
+    candidates = [r for r in roots if r.get("path") == default] if default else roots
+    for r in candidates:
         layout = disc.resolve_layout(Path(r["path"]), r.get("kind", "release"), r.get("label"))
         if layout.schema:
             return layout.schema
+    if default:
+        return None
     # No config? fall back to a live release root.
     for br in disc.discover().release_roots:
         if br.schema:

@@ -34,11 +34,15 @@ def _fl_setup_scripts() -> Path | None:
     cfg = _config()
     default = cfg.get("default_root")
     roots = cfg.get("baselight_roots", [])
-    ordered = sorted(roots, key=lambda r: r.get("path") != default)  # default first
-    for r in ordered:
+    # Only the target build: another build's copy manages a different venv
+    # (dev builds keep theirs inside the .app). Others only when no target is set.
+    candidates = [r for r in roots if r.get("path") == default] if default else roots
+    for r in candidates:
         layout = disc.resolve_layout(Path(r["path"]), r.get("kind", "release"), r.get("label"))
         if layout.setup_scripts:
             return layout.setup_scripts
+    if default:
+        return None
     for br in disc.discover().release_roots:
         if br.setup_scripts:
             return br.setup_scripts

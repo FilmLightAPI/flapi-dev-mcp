@@ -1,0 +1,92 @@
+[
+  {
+    "id": "list-jobs",
+    "prompt": "What jobs and scenes are on my Baselight? Write me a small script that lists them.",
+    "catches": "basic routing",
+    "expect": {
+      "called_any": [
+        "check_standalone_readiness",
+        "flapi_connection"
+      ]
+    }
+  },
+  {
+    "id": "export-stills",
+    "prompt": "Write a script that exports a JPEG still from the middle of every shot in a scene I pass on the command line.",
+    "catches": "ffmpeg instead of FLAPI export, skipping examples (do_export_still or render_frame both OK)",
+    "expect": {
+      "examples_before_code": true,
+      "code_forbids": [
+        "ffmpeg"
+      ],
+      "code_requires_any": [
+        "do_export_still(",
+        "render_frame("
+      ]
+    }
+  },
+  {
+    "id": "render",
+    "prompt": "Write a script that submits a render of a scene to the render queue.",
+    "catches": "QueueManager pattern",
+    "expect": {
+      "examples_before_code": true,
+      "code_requires": [
+        "QueueManager"
+      ]
+    }
+  },
+  {
+    "id": "menu-item",
+    "prompt": "I want a menu item in Baselight that shows how many shots are selected.",
+    "catches": "App Script path",
+    "expect": {
+      "called_any": [
+        "check_app_script_readiness"
+      ],
+      "examples_before_code": true
+    }
+  },
+  {
+    "id": "csv-marks",
+    "prompt": "I have a CSV of timecodes and comments. Write a script that adds them to a scene as timeline marks with the comments.",
+    "catches": "Bradley's 1h45 case",
+    "expect": {
+      "examples_before_code": true,
+      "called_any": [
+        "get_class_docs"
+      ]
+    }
+  },
+  {
+    "id": "web-cursor",
+    "prompt": "Make a little web page with buttons that move the Baselight cursor forward and back a frame.",
+    "catches": "1984 vs 1985, static Application calls (live app via :1985 or an App Script both OK)",
+    "expect": {
+      "live_app_access": true,
+      "code_forbids_regex": [
+        "flapi\\.Application\\.(?!get\\b)\\w+\\("
+      ]
+    }
+  },
+  {
+    "id": "thumb-sheet",
+    "prompt": "Make a contact sheet of thumbnails, one per shot, for a scene.",
+    "catches": "thumbnails headless only via ThumbnailManager.render_frame (build-dependent), else App Script",
+    "expect": {
+      "thumbnails_valid": true,
+      "examples_before_code": true
+    }
+  },
+  {
+    "id": "layers",
+    "prompt": "Write a script that turns off layer 2 on every shot in a scene.",
+    "catches": "inventing layer-toggle methods FLAPI does not have (declining is a pass)",
+    "expect": {
+      "code_optional": true,
+      "code_forbids_regex": [
+        "(?i)\\.(set|enable|disable|toggle|turn|get)_\\w*layer\\w*\\("
+      ]
+    }
+  }
+]
