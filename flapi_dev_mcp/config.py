@@ -12,9 +12,25 @@ import sys
 from pathlib import Path
 
 from flapi_dev_mcp.discovery import (
-    APPS_DIR, DATA_ROOT, LAYOUT, Discovery, detect_running_build, fl_setup_venv,
-    is_supported_version, resolve_layout,
+    APPS_DIR, DATA_ROOT, LAYOUT, BuildRoot, Discovery, detect_running_build,
+    fl_setup_venv, is_supported_version, resolve_layout,
 )
+
+
+def same_build(root_path: str | Path, br: BuildRoot) -> bool:
+    """True if a configured root path is the same build as `br`.
+
+    Compares resolved build bases (`<app>/Contents` on macOS), so a root given
+    via a symlinked path (e.g. ~/Development → /Volumes/SSD/Development) or as
+    the release `Current` symlink still matches the running build."""
+    a = LAYOUT.resolve_base(Path(root_path))
+    b = LAYOUT.resolve_base(br.app or br.path)
+    if a is None or b is None:
+        return False
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
 
 
 def _platform_name() -> str:
@@ -79,7 +95,11 @@ def build_config(
             "enabled": True,
         })
     for path, kind, label in (dev_roots or []):
-        entry = {"kind": kind, "path": path, "enabled": True}
+        # Resolve product + version up front so a dev root is a first-class
+        # default candidate (without a version it never passes the BL7+ check).
+        dl = resolve_layout(Path(path), kind, label)
+        entry = {"kind": kind, "product": dl.product, "path": path,
+                 "version": dl.version, "enabled": True}
         if label:
             entry["label"] = label
         baselight_roots.append(entry)
@@ -120,9 +140,15 @@ def build_config(
         return matching[-1] if matching else None
 
     default_root = None
+    # 0. The exact build serving flapid, if it's one of the configured roots
+    #    (release or dev). Compared by real path so symlinked checkouts match.
+    if running is not None:
+        default_root = next((r for r in baselight_roots
+                             if is_supported_version(r.get("version"))
+                             and same_build(r["path"], running)), None)
     # 1. Running product's live symlink target (best case: fl-vers points at
     #    a v7+ of the product currently serving flapid).
-    if running_product:
+    if default_root is None and running_product:
         default_root = _symlink_match(running_product)
     # 2. Running product's highest v7+ version — covers the case where the
     #    symlink hasn't been updated (e.g. fresh Daylight install still
@@ -148,6 +174,7 @@ def build_config(
     # exists — otherwise leave it null so init's "create the venv" guidance fires
     # (don't let a stale legacy venv mask a missing one).
     active_venv = None
+    layout = None
     if default_root:
         layout = resolve_layout(Path(default_root_path), default_root.get("kind", "release"),
                                 default_root.get("label"))
@@ -156,17 +183,18 @@ def build_config(
             active_venv = str(venv)
 
     # Context sources: the canonical enhancements repo (git) first, then the
-    # build's bundled examples, then any extra dirs the user registered.
+    # target build's bundled examples, then any extra dirs the user registered.
     sources: list[dict] = [{
         "type": "git",
         "path": str(REPO_DIR),
         "url": "https://github.com/FilmLightAPI/enhancements.git",
         "enabled": True,
     }]
-    for br in disc.release_roots:
-        if br.examples is not None:
-            sources.append({"type": "local", "path": str(br.examples), "enabled": True})
-            break
+    examples = layout.examples if layout else None
+    if examples is None:
+        examples = next((br.examples for br in disc.release_roots if br.examples), None)
+    if examples is not None:
+        sources.append({"type": "local", "path": str(examples), "enabled": True})
     for path in (extra_sources or []):
         sources.append({"type": "local", "path": path, "enabled": True})
 

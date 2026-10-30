@@ -507,7 +507,7 @@ def _process_exe(pid: str) -> Path | None:
     return Path(out.split()[0]) if out else None
 
 
-def _linux_flapid_pids() -> list[str]:
+def _flapid_pids() -> list[str]:
     """All running flapid PIDs (via pgrep), since `lsof -iTCP:1984` requires
     root to see other-owned listeners. flapid actually runs under fl-supervise
     -> flici -> flapid, so we look for any process whose cmdline includes the
@@ -528,7 +528,7 @@ def detect_running_build() -> BuildRoot | None:
     which may differ from the configured target.
     """
     if sys.platform.startswith("linux"):
-        pids = _linux_flapid_pids()
+        pids = _flapid_pids()
     else:
         try:
             r = subprocess.run(["lsof", "-nP", "-iTCP:1984", "-sTCP:LISTEN"],
@@ -540,6 +540,10 @@ def detect_running_build() -> BuildRoot | None:
             parts = line.split()
             if len(parts) > 1 and parts[1].isdigit():
                 pids.append(parts[1])
+        # flapid started via `sudo fl-service` runs as root, and lsof can't see
+        # another user's sockets without sudo. pgrep can, same as on Linux.
+        if not pids:
+            pids = _flapid_pids()
     for pid in dict.fromkeys(pids):
         exe = _process_exe(pid)
         if not exe:

@@ -59,7 +59,10 @@ def managed_venv() -> Path | None:
     can report "not created yet").
     """
     intended = _venv_via_fl_setup()
-    if intended is not None and (intended / "bin" / "python").exists():
+    if intended is not None:
+        # The build named its venv. Trust it even if not created yet, so a
+        # missing dev-build venv reports "create it" instead of silently
+        # falling back to another build's (e.g. the shared release) venv.
         return intended
 
     cfg = _config()

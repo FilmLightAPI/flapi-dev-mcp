@@ -239,8 +239,11 @@ def _cmd_init(args: argparse.Namespace) -> int:
         if args.dev:
             _heading("Dev build roots")
             print(_dim("For FilmLight devs: register a dev-build .app or dev-source checkout."))
-            for path in _ask_loop("dev-build .app or dev-source checkout path"):
-                kind = _ask("  kind (dev-build/dev-source)", "dev-build")
+            # Ask each path's kind right after the path, defaulting from its shape
+            # (an .app is a dev-build, anything else a dev-source checkout).
+            while path := _ask("dev-build .app or dev-source checkout path (blank to finish)"):
+                guess = "dev-build" if path.rstrip("/").endswith(".app") else "dev-source"
+                kind = _ask("  kind (dev-build/dev-source)", guess)
                 dev_roots.append((path, kind, None))
 
         _heading("flapid host")
@@ -257,8 +260,9 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
     _heading("Wrote config")
     _ok("config.json", path)
+    # Reported by the target build's own `fl-setup-flapi-scripts -e`, not derived.
     (_ok if cfg["baselight"]["active_venv"] else _miss)(
-        "active venv (derived)", cfg["baselight"]["active_venv"] or "active venv")
+        "app-script venv (from target build)", cfg["baselight"]["active_venv"])
     _ok("baselight_roots", len(cfg["baselight_roots"]))
     _ok("sources", len(cfg["sources"]))
     _ok("default_root", cfg["default_root"])
@@ -290,7 +294,9 @@ def _cmd_init(args: argparse.Namespace) -> int:
     # If no FLAPI venv exists yet, offer to build it (not sudo-gated).
     if not cfg["baselight"].get("active_venv"):
         from flapi_dev_mcp import app_scripts
-        fss = next((br.setup_scripts for br in d.release_roots if br.setup_scripts), None)
+        # The target build's own fl-setup-flapi-scripts: a dev build keeps its
+        # venv inside the .app, so another build's copy would create the wrong one.
+        fss = app_scripts._fl_setup_scripts()
         _heading("Action needed — no FLAPI venv yet")
         print(f"  {_yellow('•')} The FLAPI virtual environment hasn't been created.")
         if interactive and fss:
@@ -365,8 +371,12 @@ def _cmd_target_running(args: argparse.Namespace) -> int:
         roots.append({"kind": br.kind, "product": br.product, "path": path,
                       "version": br.version, "label": "running", "enabled": True})
     cfg["default_root"] = path
-    dr = disc.discover_data_root()
-    av = disc.resolve_venv(dr.python_dir, dr.python_minor, disc.baselight_major(br.version))
+    # Ask the build itself (`fl-setup-flapi-scripts -e`). Dev builds keep their
+    # venv in <app>/Contents/python/, which the data-root derivation never finds.
+    av = disc.fl_setup_venv(br.setup_scripts)
+    if av is None or not (av / "bin" / "python").exists():
+        dr = disc.discover_data_root()
+        av = disc.resolve_venv(dr.python_dir, dr.python_minor, disc.baselight_major(br.version))
     cfg.setdefault("baselight", {})["active_venv"] = str(av) if av else None
     cfgmod.save_config(cfg)
     print(f"Now targeting the running {br.product} build {br.version}")

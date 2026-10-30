@@ -43,11 +43,11 @@ def flapi_check_environment() -> dict:
     FLAPI Python, scripts/ and server-scripts/ dirs) and every release build root
     with its resolved wheel / flapid / docs / schema / examples paths.
     """
+    from flapi_dev_mcp import app_scripts
     d = disc.discover()
     dr = d.data_root
-    default = d.release_roots[0] if d.release_roots else None
-    major = disc.baselight_major(default.version) if default else None
-    active_venv = disc.resolve_venv(dr.python_dir, dr.python_minor, major)
+    # Same resolution App Script readiness uses: ask the target build first.
+    active_venv = app_scripts.managed_venv()
     return {
         "platform": cfgmod._platform_name(),
         "data_root": {
