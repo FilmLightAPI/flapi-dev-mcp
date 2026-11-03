@@ -297,7 +297,7 @@ def summarize(results: list[dict], label: str) -> str:
                      f"{', '.join(fails) or '-'} | {', '.join(tools) or 'none'} |")
     manual = sorted({f"{r['id']}-{r['run']}" for r in results if r.get("needs_manual_check")})
     if manual:
-        lines += ["", "Needs a manual check (this build writes no app-script log): "
+        lines += ["", "Needs a manual check (the app session had no log folder): "
                   + ", ".join(manual)]
     lines += ["", f"Total: {sum(r['passed'] for r in results)}/{len(results)} passed"]
     return "\n".join(lines)

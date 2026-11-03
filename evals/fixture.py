@@ -118,8 +118,9 @@ def _plugins_log() -> Path | None:
 def verify_app_scripts(paths: list[str]) -> dict:
     """Reload the running app and check each deployed script loaded cleanly,
     from the plugins.log lines written after the reload. Builds that don't
-    write that log (Baselight 7.0.1) can't be checked automatically: the reload
-    is still confirmed, and the result is marked for a manual check."""
+    write that log (a session whose log folder went missing, e.g. after a crash
+    restart) can't be checked automatically: the reload is still confirmed, and
+    the result is marked for a manual check."""
     if not paths:
         return {"loaded": [], "missing": [], "errors": [], "note": "nothing deployed"}
     log = _plugins_log()
@@ -129,7 +130,7 @@ def verify_app_scripts(paths: list[str]) -> dict:
         r = app_scripts.reload_app_scripts("ui")
         return {"loaded": [], "missing": [], "errors": [], "manual": True,
                 "reloaded": bool(r.get("restarted")),
-                "note": "this build writes no app-script log; load needs a manual check"}
+                "note": "app session has no log folder; load needs a manual check"}
     start = log.stat().st_size if log.exists() else 0
     reloaded = bool(app_scripts.reload_app_scripts("ui").get("restarted"))
     time.sleep(3)

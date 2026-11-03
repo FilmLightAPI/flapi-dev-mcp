@@ -289,13 +289,16 @@ def get_app_script_log(lines: int = 80) -> dict:
         return {"ok": False, "error": f"could not read FLTMPDIR from Baselight pid {pid}"}
     log = Path(td) / "plugins.log"
     if not Path(td).is_dir():
-        # Seen on Baselight 7.0.1: the app names a log folder it never creates,
-        # so script output and load errors aren't written anywhere readable.
+        # Seen after Baselight restarted itself from a crash: the crash reporter
+        # moves the session's log folder to log/support/, and the restarted app
+        # keeps the old path, so script output goes nowhere readable.
         return {"ok": False, "log": str(log), "log_available": False,
-                "error": "This build doesn't write an app-script log (its log folder was never "
-                         "created). Have the script also append its output to its own log file, "
-                         "e.g. ~/.flapi-dev-mcp/logs/<script>.log, and read that. To confirm a "
-                         "UI script loaded, ask the user whether its menu item appears."}
+                "error": "This Baselight/Daylight session's log folder is missing, usually "
+                         "because the app restarted after a crash and the crash report moved "
+                         "it. Ask the user to quit and relaunch the app to get the log back. "
+                         "Until then, have the script also append its output to its own log "
+                         "file (e.g. ~/.flapi-dev-mcp/logs/<script>.log) and read that, and "
+                         "ask the user whether its menu item appears."}
     if not log.is_file():
         return {"ok": False, "log": str(log),
                 "error": "plugins.log not created yet. It appears once an app script loads "

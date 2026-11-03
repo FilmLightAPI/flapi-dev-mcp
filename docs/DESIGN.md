@@ -26,8 +26,9 @@ but parts of it are out of date. What's true now:
   a project's `AGENTS.md` for agents that ignore server instructions.
 - **App Scripts:** `reload_app_scripts` reloads through the running app (:1985) for
   UI scripts and flapid (:1984) for server scripts, and confirms the script process
-  really restarted. Some builds (Baselight 7.0.1) write no app-script log, and the
-  log tool says so.
+  really restarted. If the app's log folder is missing (seen after Baselight
+  restarted itself from a crash, when the crash reporter moves the folder), the
+  log tool says so and suggests relaunching the app.
 - **Testing:** unit tests in `tests/` (no Baselight needed), a live install test in
   `tests/live/`, and agent evals in `evals/` that run headless Claude Code on
   plain-English tasks and check real outcomes against a job and media they create.
