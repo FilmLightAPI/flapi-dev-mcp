@@ -56,3 +56,19 @@ def test_composite_contact_sheet_counts():
     src = {"a.py": "flapi.Export.do_export_still(qm, s, st)\nsheet.save('contact_sheet.png')"}
     res = run.score(case, "", src, {"images": ["contact_sheet.png"]})
     assert res["checks"]["shows>=3_images"] is True
+
+
+def test_blocked_command_does_not_count_as_a_failed_run():
+    import json as _j
+    def ev(i, cmd, out, err):
+        return "\n".join([
+            _j.dumps({"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": i, "name": "Bash", "input": {"command": cmd}}]}}),
+            _j.dumps({"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": i, "content": out, "is_error": err}]}})])
+    stream = "\n".join([ev("1", ".venv/bin/python list.py", "jobs...", False),
+                        ev("2", ".venv/bin/python list.py > /tmp/x; grep -c . /tmp/x",
+                           "This Bash command contains multiple operations. The following "
+                           "parts require approval: grep", True)])
+    case = {"id": "x", "run": True, "expect": {"code_optional": True}}
+    assert run.score(case, stream, {"list.py": "print(1)"})["checks"]["last_run_ok"] is True

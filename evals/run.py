@@ -199,8 +199,10 @@ def score(case: dict, stream: str, code: dict, extra: dict | None = None) -> dic
     # run succeeded. Then the real outcome, checked outside the agent.
     ver = case.get("verify", {})
     if case.get("run"):
+        # Commands the sandbox blocked never ran, so they say nothing about the script.
         script_runs = [r for r in runs if ".venv/bin/python" in r["cmd"]
-                       and "py_compile" not in r["cmd"]]
+                       and "py_compile" not in r["cmd"]
+                       and not re.search(r"requires? approval", r["output"])]
         checks["ran_script"] = bool(script_runs)
         checks["last_run_ok"] = bool(script_runs) and not script_runs[-1]["error"]
         if "output_mentions" in ver:
@@ -343,6 +345,7 @@ def main() -> int:
                 extra = json.loads(ex.read_text()) if ex.exists() else None
                 results.append(score(c, (d / "transcript.jsonl").read_text(), code, extra)
                                | {"id": c["id"], "run": int(d.name.rsplit("-", 1)[1])})
+        (outdir / "results.json").write_text(json.dumps(results, indent=2))
         report = summarize(results, a.label)
         (outdir / "summary.md").write_text(report + "\n")
         print(report)
