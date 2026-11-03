@@ -15,8 +15,9 @@ from mcp.server.fastmcp import FastMCP
 
 from flapi_dev_mcp import config as cfgmod
 from flapi_dev_mcp import discovery as disc
+from flapi_dev_mcp.instructions import INSTRUCTIONS
 
-mcp = FastMCP("flapi-dev")
+mcp = FastMCP("flapi-dev", instructions=INSTRUCTIONS)
 
 
 @mcp.tool()

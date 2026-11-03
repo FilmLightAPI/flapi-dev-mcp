@@ -30,3 +30,15 @@ def test_descriptions_carry_the_key_rules():
     assert "never flapi.Application" in t["flapi_connection"].description
     assert "No Application class" not in t["flapi_connection"].description
     assert "restarted=false" in t["reload_app_scripts"].description
+
+
+def test_instructions_fit_claude_codes_limit_and_carry_the_rules():
+    from flapi_dev_mcp.instructions import INSTRUCTIONS
+    assert server.mcp.instructions == INSTRUCTIONS
+    assert len(INSTRUCTIONS) <= 1900          # Claude Code truncates at ~2,000
+    for rule in ("check_standalone_readiness", "check_app_script_readiness", "search_examples",
+                 "get_class_docs", "conn.Application.get()", "do_export_still",
+                 "install_app_dependencies", "reload_app_scripts", ":1984", ":1985"):
+        assert rule in INSTRUCTIONS, rule
+    for tool in ("check_flapid", "flapi_dev_ping", "flapi_check_environment"):
+        assert tool not in INSTRUCTIONS         # never point at a removed tool
