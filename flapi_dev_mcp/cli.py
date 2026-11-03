@@ -378,6 +378,13 @@ def _cmd_target_running(args: argparse.Namespace) -> int:
         dr = disc.discover_data_root()
         av = disc.resolve_venv(dr.python_dir, dr.python_minor, disc.baselight_major(br.version))
     cfg.setdefault("baselight", {})["active_venv"] = str(av) if av else None
+    # Swap the build-bundled examples source for this build's, so the agent
+    # never searches another build's examples. User-added sources are kept.
+    bundled = "/share/flapi/examples/python"
+    sources = [s for s in cfg.get("sources", []) if not str(s.get("path", "")).endswith(bundled)]
+    if br.examples is not None:
+        sources.append({"type": "local", "path": str(br.examples), "enabled": True})
+    cfg["sources"] = sources
     cfgmod.save_config(cfg)
     print(f"Now targeting the running {br.product} build {br.version}")
     print(f"  app:    {path}")

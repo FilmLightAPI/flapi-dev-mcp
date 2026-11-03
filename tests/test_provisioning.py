@@ -166,3 +166,18 @@ def test_finds_gui_for_app_script_log(cmd, monkeypatch):
     monkeypatch.setattr(app_scripts.subprocess, "run",
                         lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=ps, stderr=""))
     assert app_scripts._gui_baselight_pid() == "4242"
+
+
+def test_target_running_switches_examples_and_keeps_user_sources(fl_env):
+    # Targeting dev first, with an extra user source registered...
+    fl_env.run_as(fl_env.dev_app)
+    cfg = cfgmod.build_config(disc.discover(), dev_roots=[(str(fl_env.dev_alias), "dev-build", "s")],
+                              extra_sources=["/studio/scripts"])
+    cfgmod.save_config(cfg)
+    # ...then the release build starts serving and the user re-targets.
+    fl_env.run_as(fl_env.rel_app, kind="release")
+    assert cli._cmd_target_running(argparse.Namespace()) == 0
+    paths = [s["path"] for s in cfgmod.load_config()["sources"] if s["type"] == "local"]
+    assert "/studio/scripts" in paths
+    bundled = [Path(p).resolve() for p in paths if p.endswith("/share/flapi/examples/python")]
+    assert bundled == [(fl_env.rel_app / "Contents/share/flapi/examples/python").resolve()]
