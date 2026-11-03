@@ -396,6 +396,15 @@ def _cmd_target_running(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_init_project(args: argparse.Namespace) -> int:
+    from flapi_dev_mcp import project
+    for line in project.init_project(args.path):
+        mark = _dim("·") if "already" in line else _green("✓")
+        print(f"  {mark} {line}")
+    print(_dim("  Agents that read AGENTS.md now get the FLAPI instructions every session."))
+    return 0
+
+
 def _cmd_update(args: argparse.Namespace) -> int:
     from flapi_dev_mcp import repo
     res = repo.clone_or_update()
@@ -461,6 +470,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("target-running", help="target the Baselight build currently running on :1984")
 
+    p_proj = sub.add_parser("init-project",
+                            help="write the FLAPI agent instructions into ./AGENTS.md")
+    p_proj.add_argument("path", nargs="?", default=".", help="project folder (default: current)")
+
     sub.add_parser("update", help="git-pull context sources and re-index")
     sub.add_parser("config", help="print raw config.json")
 
@@ -482,6 +495,7 @@ def main(argv: list[str] | None = None) -> int:
         "status": _cmd_status,
         "set-venv": _cmd_set_venv,
         "target-running": _cmd_target_running,
+        "init-project": _cmd_init_project,
         "update": _cmd_update,
         "config": _cmd_config,
     }[args.command](args)
