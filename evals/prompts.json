@@ -17,15 +17,15 @@
   {
     "id": "export-stills",
     "prompt": "Write a script that exports a JPEG still from the middle of every shot in a scene I pass on the command line. Run it on {scene} and put the stills in ./stills.",
-    "catches": "ffmpeg instead of FLAPI export, skipping examples (do_export_still or render_frame both OK)",
+    "catches": "ffmpeg instead of FLAPI export, skipping examples",
     "expect": {
       "examples_before_code": true,
       "code_forbids": [
         "ffmpeg"
       ],
-      "code_requires_any": [
-        "do_export_still(",
-        "render_frame("
+      "code_requires": [
+        "QueueManager",
+        "do_export_still("
       ]
     },
     "run": true,
@@ -97,14 +97,14 @@
   {
     "id": "thumb-sheet",
     "prompt": "Make a contact sheet of thumbnails, one per shot, for {scene}. Run it so I can look at the result.",
-    "catches": "thumbnails headless only via ThumbnailManager.render_frame (build-dependent), else App Script",
+    "catches": "thumbnails: do_export_still headless, or an App Script",
     "expect": {
       "thumbnails_valid": true,
       "examples_before_code": true
     },
     "run": true,
     "verify": {
-      "any_output": true
+      "min_shown_images": 3
     }
   },
   {

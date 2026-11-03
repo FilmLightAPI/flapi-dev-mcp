@@ -38,6 +38,8 @@ READ_ONLY_TOOLS = [
     "get_app_script_log", "get_flapi_log",
 ]
 CODE_EXT = {".py", ".html", ".js", ".sh"}
+# Read-only helpers agents chain onto script runs (`... | head`, `; wc -l`).
+SAFE_SHELL = ["head", "tail", "wc", "cat", "ls", "grep", "echo", "file", "mkdir"]
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".gif"}
 OUTPUT_EXT = {".html", ".pdf"}
 
@@ -50,7 +52,8 @@ def _claude_args(prompt: str, mcp_config: Path, model: str | None,
     if run:
         # Only the project's own venv interpreter may run, nothing else in Bash.
         allowed += ["Bash(.venv/bin/python:*)", "Bash(./.venv/bin/python:*)",
-                    f"Bash({work}/.venv/bin/python:*)"]
+                    f"Bash({work}/.venv/bin/python:*)",
+                    *[f"Bash({t}:*)" for t in SAFE_SHELL]]
     if app_script:
         # Real deploy: write into the dirs Baselight/Daylight scan, syntax-check
         # with the build's venv, and reload. The harness removes the files after.
@@ -74,7 +77,9 @@ def run_one(case: dict, n: int, outdir: Path, mcp_config: Path, model: str | Non
             timeout: int) -> dict:
     rundir = outdir / f"{case['id']}-{n}"
     rundir.mkdir(parents=True, exist_ok=True)
-    work = Path(tempfile.mkdtemp(prefix=f"flapi-eval-{case['id']}-"))
+    # Resolve: macOS temp dirs live under /var -> /private/var, and a path the
+    # agent sees one way must match permission rules written the other way.
+    work = Path(tempfile.mkdtemp(prefix=f"flapi-eval-{case['id']}-")).resolve()
     scene = f"{case['id']}-{n}"
     prompt = case["prompt"].format(scene=fixture.scene_path(scene))
     for name, body in case.get("files", {}).items():
@@ -101,6 +106,14 @@ def run_one(case: dict, n: int, outdir: Path, mcp_config: Path, model: str | Non
                                if f.suffix.lower() in OUTPUT_EXT and ".venv" not in f.parts)}
     if case.get("verify", {}).get("marks"):
         extra["marks"] = fixture.marks(scene)
+    # Real images in any HTML it produced (data: URIs or files that exist).
+    extra["html_imgs"] = 0
+    for f in work.rglob("*.html"):
+        if ".venv" in f.parts:
+            continue
+        for src_ in re.findall(r'<img[^>]+src="([^"]+)"', f.read_text(errors="replace")):
+            if src_.startswith("data:image") or (f.parent / src_).is_file():
+                extra["html_imgs"] += 1
     if "rerun_mentions" in case.get("verify", {}):
         # Re-run the agent's script ourselves (read-only cases only) and keep
         # its full output, independent of how the agent displayed it.
@@ -179,10 +192,9 @@ def score(case: dict, stream: str, code: dict, extra: dict | None = None) -> dic
     if exp.get("live_app_access"):
         checks["live_app"] = "1985" in src or app_script
     if exp.get("thumbnails_valid"):
-        # Headless thumbnails only through render_frame (newer builds). The
-        # URI-based calls need the app, i.e. an App Script.
-        uri_calls = re.search(r"get_(poster_uri|scrub_uri_template)\(", src)
-        checks["thumbnails_ok"] = app_script or not uri_calls
+        # Headless thumbnails go through Export.do_export_still. ThumbnailManager's
+        # URI calls need the app, i.e. an App Script.
+        checks["thumbnails_ok"] = app_script or "do_export_still(" in src
     # Execution: the agent ran its script with the project venv, and the last
     # run succeeded. Then the real outcome, checked outside the agent.
     ver = case.get("verify", {})
@@ -201,6 +213,9 @@ def score(case: dict, stream: str, code: dict, extra: dict | None = None) -> dic
         checks[f"images>={ver['min_images']}"] = len(extra.get("images", [])) >= ver["min_images"]
     if ver.get("any_output"):
         checks["produced_output"] = bool(extra.get("images") or extra.get("outputs"))
+    if "min_shown_images" in ver:
+        checks[f"shows>={ver['min_shown_images']}_images"] = (
+            max(len(extra.get("images", [])), extra.get("html_imgs", 0)) >= ver["min_shown_images"])
     if ver.get("app_script_loads"):
         load = extra.get("load", {})
         checks["deployed"] = bool(extra.get("deployed"))
@@ -213,17 +228,51 @@ def score(case: dict, stream: str, code: dict, extra: dict | None = None) -> dic
         checks[f"marks=={len(want)}"] = m.get("count") == len(want)
         checks["mark_notes"] = sorted(m.get("notes", [])) == sorted(want)
     # Global checks on every run.
+    unofficial = unofficial_calls(src)
+    checks["official_api_only"] = not unofficial
     if not exp.get("code_optional"):
         checks["wrote_code"] = bool(code)
     checks["no_static_app_call"] = re.search(r"flapi\.Application\.(?!get\b)\w+\(", src) is None
 
     return {
+        "unofficial_calls": unofficial,
         "passed": all(checks.values()),
         "checks": checks,
         "flapi_calls": [c for c in calls if c in READ_ONLY_TOOLS],
         "cost_usd": result.get("total_cost_usd"),
         "turns": result.get("num_turns"),
     }
+
+
+_SCHEMA_METHODS: dict[str, set[str]] | None = None
+
+
+def _schema_methods() -> dict[str, set[str]]:
+    """Class -> method names from the target build's schema (official FLAPI)."""
+    global _SCHEMA_METHODS
+    if _SCHEMA_METHODS is None:
+        from flapi_dev_mcp import schema
+        path = schema.active_schema_path()
+        d = json.loads(Path(path).read_text()) if path else {"Classes": []}
+        _SCHEMA_METHODS = {c["Name"]: {m["Name"] for m in c.get("Methods", [])}
+                           for c in d["Classes"]}
+    return _SCHEMA_METHODS
+
+
+def unofficial_calls(src: str) -> list[str]:
+    """`Class.method(` calls on FLAPI classes (e.g. conn.Scene.open_scene,
+    flapi.Export.do_export_still) whose method isn't in the build's schema."""
+    methods = _schema_methods()
+    bad = set()
+    for cls, meth in re.findall(r"\b([A-Z]\w+)\.([a-z_]\w*)\s*\(", src):
+        if cls in methods and meth not in methods[cls]:
+            bad.add(f"{cls}.{meth}")
+    # Any class reached through a connection (conn.X.y) must exist at all, so
+    # classes that aren't in this build (e.g. an experiment) are caught too.
+    for cls, meth in re.findall(r"\bconn\w*\.([A-Z]\w+)\.([a-z_]\w*)\s*\(", src):
+        if cls not in methods:
+            bad.add(f"{cls}.{meth}")
+    return sorted(bad)
 
 
 def summarize(results: list[dict], label: str) -> str:
