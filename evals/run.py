@@ -223,8 +223,10 @@ def score(case: dict, stream: str, code: dict, extra: dict | None = None) -> dic
     if ver.get("app_script_loads"):
         load = extra.get("load", {})
         checks["deployed"] = bool(extra.get("deployed"))
-        checks["loaded_in_app"] = bool(load.get("loaded")) and not load.get("missing")
-        checks["no_load_errors"] = not load.get("errors")
+        checks["app_reloaded"] = bool(load.get("reloaded"))
+        if not load.get("manual"):     # builds with no app log can't be checked here
+            checks["loaded_in_app"] = bool(load.get("loaded")) and not load.get("missing")
+            checks["no_load_errors"] = not load.get("errors")
         checks["agent_reloaded"] = "reload_app_scripts" in calls
     if ver.get("marks"):
         m = extra.get("marks", {})
@@ -239,6 +241,7 @@ def score(case: dict, stream: str, code: dict, extra: dict | None = None) -> dic
     checks["no_static_app_call"] = re.search(r"flapi\.Application\.(?!get\b)\w+\(", src) is None
 
     return {
+        "needs_manual_check": bool(extra.get("load", {}).get("manual")),
         "unofficial_calls": unofficial,
         "passed": all(checks.values()),
         "checks": checks,
@@ -292,9 +295,11 @@ def summarize(results: list[dict], label: str) -> str:
         tools = sorted({t for r in rs for t in r["flapi_calls"]})
         lines.append(f"| {cid} | {sum(r['passed'] for r in rs)}/{len(rs)} | "
                      f"{', '.join(fails) or '-'} | {', '.join(tools) or 'none'} |")
-    cost = sum(r["cost_usd"] or 0 for r in results)
-    lines += ["", f"Total: {sum(r['passed'] for r in results)}/{len(results)} passed, "
-                  f"${cost:.2f}"]
+    manual = sorted({f"{r['id']}-{r['run']}" for r in results if r.get("needs_manual_check")})
+    if manual:
+        lines += ["", "Needs a manual check (this build writes no app-script log): "
+                  + ", ".join(manual)]
+    lines += ["", f"Total: {sum(r['passed'] for r in results)}/{len(results)} passed"]
     return "\n".join(lines)
 
 

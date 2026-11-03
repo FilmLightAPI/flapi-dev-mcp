@@ -15,7 +15,6 @@ import re
 import shutil
 import subprocess
 import time
-import urllib.request
 from pathlib import Path
 
 from flapi_dev_mcp import app_scripts
@@ -90,9 +89,6 @@ def clean_media() -> None:
 # App Scripts: deploy dirs, live reload, load verification
 # --------------------------------------------------------------------------- #
 
-APP_PORT = 1985
-
-
 def deploy_dirs() -> list[str]:
     """Where an App Script may be written: the configured UI/server dirs plus
     the per-user scripts dir the app also scans."""
@@ -110,7 +106,7 @@ def undeploy(paths: list[str]) -> None:
     for p in paths:
         Path(p).unlink(missing_ok=True)
     if paths:
-        reload_app()
+        app_scripts.reload_app_scripts("ui")
 
 
 def _plugins_log() -> Path | None:
@@ -119,25 +115,24 @@ def _plugins_log() -> Path | None:
     return Path(td) / "plugins.log" if td else None
 
 
-def reload_app(wait: float = 8.0) -> bool:
-    try:
-        with urllib.request.urlopen(f"http://localhost:{APP_PORT}/reload-scripts", timeout=20) as r:
-            ok = r.status == 200
-    except OSError:
-        return False
-    time.sleep(wait)
-    return ok
-
-
 def verify_app_scripts(paths: list[str]) -> dict:
     """Reload the running app and check each deployed script loaded cleanly,
-    from the plugins.log lines written after the reload."""
+    from the plugins.log lines written after the reload. Builds that don't
+    write that log (Baselight 7.0.1) can't be checked automatically: the reload
+    is still confirmed, and the result is marked for a manual check."""
+    if not paths:
+        return {"loaded": [], "missing": [], "errors": [], "note": "nothing deployed"}
     log = _plugins_log()
-    if log is None or not paths:
-        return {"loaded": [], "missing": paths, "errors": [] if paths else [],
-                "note": "no running app GUI" if log is None else "nothing deployed"}
+    if log is None:
+        return {"loaded": [], "missing": paths, "errors": [], "note": "no running app GUI"}
+    if not log.parent.is_dir():
+        r = app_scripts.reload_app_scripts("ui")
+        return {"loaded": [], "missing": [], "errors": [], "manual": True,
+                "reloaded": bool(r.get("restarted")),
+                "note": "this build writes no app-script log; load needs a manual check"}
     start = log.stat().st_size if log.exists() else 0
-    reloaded = reload_app()
+    reloaded = bool(app_scripts.reload_app_scripts("ui").get("restarted"))
+    time.sleep(3)
     text = log.read_text(errors="replace")[start:] if log.exists() else ""
     resolved = {p: str(Path(p).resolve()) for p in paths}
     loaded = [p for p, r in resolved.items()

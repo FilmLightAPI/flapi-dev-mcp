@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import time
 import urllib.request
 from pathlib import Path
 
@@ -23,6 +24,8 @@ from flapi_dev_mcp import discovery as disc
 # view (the <host>-flapid symlink there points at the live dir).
 LOG_DIRS = [Path("/vol/.support/log"), disc.DATA_ROOT / "log"]
 RELOAD_PORT = 1984  # flapid HTTP port (server-script reload)
+APP_PORT = 1985     # running app's HTTP port (UI-script reload)
+MANUAL_RELOAD = "Views > Scripts > (gear) > Reload Scripts"
 
 
 def _config() -> dict:
@@ -152,32 +155,66 @@ def check_app_script_readiness(kind: str = "both") -> dict:
             "2. Syntax-check before deploy: managed-venv python `-m py_compile <script>`.",
             "3. Deploy: UI scripts → scripts/, server scripts → server-scripts/. Install extra deps "
             "with install_app_dependencies (managed venv), NOT install_dependencies.",
-            "4. Reload: SERVER scripts → reload_app_scripts (flapid :1984). UI scripts → ask the user "
-            "to reload via Views > Scripts > (gear) > Reload Scripts, then click the menu item.",
+            "4. Reload: reload_app_scripts(kind='ui' or 'server'). It confirms the reload really "
+            "happened. If it returns restarted=false, ask the user to reload via Views > Scripts > "
+            "(gear) > Reload Scripts. For a UI script, the user then clicks the menu item.",
             "5. Verify: UI/app scripts → get_app_script_log (the GUI's plugins.log; catches load "
-            "errors too). SERVER scripts → get_flapi_log (flapid console). Iterate.",
+            "errors too). If it says this build doesn't write that log, have the script write its "
+            "own log file and read that. SERVER scripts → get_flapi_log (flapid console). Iterate.",
         ],
     }
 
 
-def reload_app_scripts(host: str = "localhost", port: int = RELOAD_PORT, timeout: int = 12) -> dict:
-    """Trigger Baselight's "Reload Scripts" action programmatically.
+def _plugin_pids(kind: str) -> set[str]:
+    """PIDs of the Python interpreter that runs app scripts of this kind
+    (`flapi-plugins.py app` for UI scripts, `... server` for server scripts).
+    A reload that worked replaces it with a new process."""
+    try:
+        r = subprocess.run(["ps", "-Ao", "pid=,command="], capture_output=True, text=True, timeout=8)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    word = "app" if kind == "ui" else "server"
+    return {ln.split(None, 1)[0] for ln in r.stdout.splitlines()
+            if re.search(rf"flapi-plugins\.py {word}\b", ln)}
 
-    HTTP GET http://<host>:<port>/reload-scripts. NOTE: app scripts and server
-    scripts are served by DIFFERENT servers, each with this endpoint. The app
-    API server (UI scripts) uses the `flapi_port_number` pref — normally 1984,
-    but if multiple Baselights contend for 1984 the app server falls back to a
-    dynamic port. If reload doesn't pick up a UI script, you're likely hitting
-    flapid (server scripts) instead; pass the app server's actual port.
+
+def reload_app_scripts(kind: str = "ui", host: str = "localhost", port: int = 0,
+                       timeout: int = 12, wait: float = 15.0) -> dict:
+    """Reload app scripts, the same as the "Reload Scripts" button, and check it worked.
+
+    kind 'ui' asks the running app (port 1985), kind 'server' asks flapid (1984).
+    On this machine it then checks the script interpreter really restarted.
+    Some builds (seen on Baselight 7.0.1) accept the request but don't reload
+    UI scripts, so `restarted: false` means: ask the user to reload by hand.
     """
+    kind = "server" if kind == "server" else "ui"
+    port = port or (APP_PORT if kind == "ui" else RELOAD_PORT)
     url = f"http://{host}:{port}/reload-scripts"
+    local = host in ("localhost", "127.0.0.1")
+    before = _plugin_pids(kind) if local else set()
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:
-            body = r.read().decode(errors="replace").strip()
-            return {"ok": r.status == 200, "status": r.status, "body": body, "url": url}
+            status, body = r.status, r.read().decode(errors="replace").strip()
     except Exception as e:
-        return {"ok": False, "url": url, "error": str(e)[:300],
-                "fallback": "run in Terminal: sudo fl-service restart flapi"}
+        return {"ok": False, "kind": kind, "url": url, "error": str(e)[:300],
+                "action": f"ask the user to reload via {MANUAL_RELOAD}"}
+    out = {"ok": status == 200, "kind": kind, "status": status, "body": body, "url": url}
+    if not local:
+        out["restarted"] = None
+        out["note"] = "remote host: can't confirm the reload from here"
+        return out
+    deadline = time.time() + wait
+    after = before
+    while time.time() < deadline:
+        after = _plugin_pids(kind)
+        if after and after != before:
+            break
+        time.sleep(1)
+    out["restarted"] = bool(after) and after != before
+    if not out["restarted"]:
+        out["action"] = (f"This build accepted the reload but didn't restart its {kind} scripts. "
+                         f"Ask the user to reload via {MANUAL_RELOAD}, then check the result.")
+    return out
 
 
 def _current_log_file() -> Path | None:
@@ -259,9 +296,17 @@ def get_app_script_log(lines: int = 80) -> dict:
     if not td:
         return {"ok": False, "error": f"could not read FLTMPDIR from Baselight pid {pid}"}
     log = Path(td) / "plugins.log"
+    if not Path(td).is_dir():
+        # Seen on Baselight 7.0.1: the app names a log folder it never creates,
+        # so script output and load errors aren't written anywhere readable.
+        return {"ok": False, "log": str(log), "log_available": False,
+                "error": "This build doesn't write an app-script log (its log folder was never "
+                         "created). Have the script also append its output to its own log file, "
+                         "e.g. ~/.flapi-dev-mcp/logs/<script>.log, and read that. To confirm a "
+                         "UI script loaded, ask the user whether its menu item appears."}
     if not log.is_file():
         return {"ok": False, "log": str(log),
-                "error": "plugins.log not created yet — it appears once an app script loads "
+                "error": "plugins.log not created yet. It appears once an app script loads "
                          "(deploy a script and reload, then check again)"}
     try:
         text = log.read_text(errors="replace")

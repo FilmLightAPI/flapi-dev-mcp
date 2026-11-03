@@ -267,19 +267,17 @@ def install_dependencies(packages: list[str], project_dir: str = "") -> dict:
 
 
 @mcp.tool()
-def reload_app_scripts(host: str = "localhost", port: int = 1984) -> dict:
-    """Reload Baselight's app scripts programmatically (the "Reload Scripts" button).
+def reload_app_scripts(kind: str = "ui", host: str = "localhost", port: int = 0) -> dict:
+    """Reload Baselight/Daylight app scripts (the "Reload Scripts" button) and confirm it worked.
 
-    After writing/editing an App Script, call this to make Baselight pick it up
-    (HTTP GET :<port>/reload-scripts → restarts the server's Python). IMPORTANT:
-    UI scripts and server scripts are served by different servers. The UI/app
-    server uses the flapi_port_number pref (normally 1984); if a UI script
-    doesn't reload, you're likely hitting flapid (server scripts) — pass the app
-    server's real port. After reloading, read get_flapi_log for load errors; for
-    a UI menu item the user still clicks it. Fallback: `sudo fl-service restart flapi`.
+    kind='ui' for UI scripts (asks the running app, :1985), kind='server' for
+    server scripts (asks flapid, :1984). After writing or editing an App Script,
+    call this, then read get_app_script_log (UI) or get_flapi_log (server) for
+    load errors. If it returns restarted=false, the build ignored the request:
+    ask the user to reload via Views > Scripts > (gear) > Reload Scripts.
     """
     from flapi_dev_mcp import app_scripts
-    return app_scripts.reload_app_scripts(host, port)
+    return app_scripts.reload_app_scripts(kind, host, port)
 
 
 @mcp.tool()
