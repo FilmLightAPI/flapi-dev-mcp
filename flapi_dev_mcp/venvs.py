@@ -10,6 +10,7 @@ setup_standalone_env() and install_dependencies().
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -25,16 +26,23 @@ def _config() -> dict:
 
 
 def default_layout() -> disc.BuildRoot | None:
-    """Resolve the layout (wheel, version, …) of the configured default build root."""
-    cfg = _config()
-    default = cfg.get("default_root")
-    roots = cfg.get("baselight_roots", [])
-    ordered = sorted(roots, key=lambda r: r.get("path") != default)  # default first
-    for r in ordered:
-        layout = disc.resolve_layout(Path(r["path"]), r.get("kind", "release"), r.get("label"))
-        if layout.version:
-            return layout
-    return None
+    """The build whose wheel standalone venvs get: the running build if there
+    is one, else the configured target (see config.target_layout). Never a
+    different build's, so a Daylight project can't end up with Baselight's wheel."""
+    layout, _ = cfgmod.target_layout()
+    return layout if layout is not None and layout.version else None
+
+
+def _installed_wheel_version(venv: Path) -> str | None:
+    r = subprocess.run([str(venv_python(venv)), "-m", "pip", "show", "filmlightapi"],
+                       capture_output=True, text=True)
+    m = re.search(r"^Version:\s*(\S+)", r.stdout, re.MULTILINE)
+    return m.group(1) if m else None
+
+
+def _wheel_version(wheel: Path) -> str | None:
+    m = re.match(r"filmlightapi-([^-]+)-", wheel.name)
+    return m.group(1) if m else None
 
 
 def venv_path(version: str) -> Path:
@@ -88,10 +96,15 @@ def setup_standalone_env(project_dir: str = "", reinstall_wheel: bool = False) -
         created = True
 
     imp = _import_check(venv)
-    if created or reinstall_wheel or not imp["ok"]:
+    # Both products' wheels import as `flapi`, so a working import proves
+    # nothing: reinstall whenever the venv holds a different build's wheel.
+    stale = (not created and imp["ok"]
+             and _installed_wheel_version(venv) != _wheel_version(layout.wheel))
+    if created or reinstall_wheel or stale or not imp["ok"]:
         r = subprocess.run(
             [str(venv_python(venv)), "-m", "pip", "install", "--quiet",
-             "--disable-pip-version-check", str(layout.wheel)],
+             "--disable-pip-version-check", "--force-reinstall", "--no-deps",
+             str(layout.wheel)],
             capture_output=True, text=True,
         )
         if r.returncode != 0:
@@ -108,6 +121,8 @@ def setup_standalone_env(project_dir: str = "", reinstall_wheel: bool = False) -
         "project_dir": str(venv.parent),
         "created": created,
         "wheel": str(layout.wheel),
+        "product": layout.product,
+        "reinstalled_stale_wheel": bool(stale),
         "import_flapi": imp,
     }
 

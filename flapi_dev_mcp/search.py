@@ -21,10 +21,20 @@ SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".idea"}
 MAX_BYTES = 1_000_000  # skip files larger than ~1MB
 
 
+_BUNDLED = "/share/flapi/examples/python"
+
+
 def _enabled_sources() -> list[dict]:
+    """Configured sources, with the build-bundled examples swapped for the
+    target build's own (so the agent never adapts another build's examples)."""
     cfg = cfgmod.load_config() or {}
+    layout, _ = cfgmod.target_layout()
+    sources = list(cfg.get("sources", []))
+    if layout is not None and layout.examples is not None:
+        sources = [s for s in sources if not str(s.get("path", "")).endswith(_BUNDLED)]
+        sources.append({"type": "local", "path": str(layout.examples), "enabled": True})
     out = []
-    for s in cfg.get("sources", []):
+    for s in sources:
         if s.get("enabled", True):
             p = Path(os.path.expanduser(s.get("path", "")))
             if p.is_dir():

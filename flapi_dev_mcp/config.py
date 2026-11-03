@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 from flapi_dev_mcp.discovery import (
@@ -31,6 +32,42 @@ def same_build(root_path: str | Path, br: BuildRoot) -> bool:
         return a.resolve() == b.resolve()
     except OSError:
         return False
+
+
+_RUNNING_CACHE: dict = {}
+
+
+def running_build(ttl: float = 10.0) -> "BuildRoot | None":
+    """The build serving flapid on this machine, cached briefly (detection
+    shells out to ps/lsof, and one tool call can ask several times)."""
+    now = time.time()
+    if _RUNNING_CACHE and now - _RUNNING_CACHE["t"] < ttl:
+        return _RUNNING_CACHE["v"]
+    v = detect_running_build()
+    _RUNNING_CACHE.update(t=now, v=v)
+    return v
+
+
+def target_layout() -> "tuple[BuildRoot | None, str]":
+    """The build every tool should use, and why: ("running", ...) or ("config", ...).
+
+    Only one product can serve flapid on :1984 at a time, so locally the build
+    that's actually running is always the right wheel, schema, venv and
+    examples, whatever init chose, including after switching between Baselight
+    and Daylight or between builds. With a remote flapid_host, or nothing
+    running here, the configured default_root is used."""
+    cfg = load_config() or {}
+    host = cfg.get("flapid_host") or "localhost"
+    if host in ("localhost", "127.0.0.1"):
+        running = running_build()
+        if running is not None and running.wheel is not None and is_supported_version(running.version):
+            return running, "running"
+    default = cfg.get("default_root")
+    r = next((r for r in cfg.get("baselight_roots", []) if r.get("path") == default), None)
+    if r is None:
+        return None, "config"
+    return resolve_layout(Path(r["path"]), r.get("kind", "release"), r.get("label"),
+                          r.get("product")), "config"
 
 
 def _platform_name() -> str:

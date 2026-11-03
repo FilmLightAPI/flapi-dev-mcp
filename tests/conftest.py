@@ -102,6 +102,7 @@ def fl_env(tmp_path, monkeypatch):
     def run_as(app: Path | None, kind: str = "dev-build") -> None:
         """Pretend `app` is the build serving flapid on :1984 (None = nothing running)."""
         br = disc.resolve_layout(app, kind) if app else None
+        cfgmod._RUNNING_CACHE.clear()
         monkeypatch.setattr(cfgmod, "detect_running_build", lambda: br)
         monkeypatch.setattr(disc, "detect_running_build", lambda: br)
 

@@ -33,22 +33,14 @@ def _config() -> dict:
 
 
 def _fl_setup_scripts() -> Path | None:
-    """Path to the target build's fl-setup-flapi-scripts (the venv manager)."""
-    cfg = _config()
-    default = cfg.get("default_root")
-    roots = cfg.get("baselight_roots", [])
-    # Only the target build: another build's copy manages a different venv
-    # (dev builds keep theirs inside the .app). Others only when no target is set.
-    candidates = [r for r in roots if r.get("path") == default] if default else roots
-    for r in candidates:
-        layout = disc.resolve_layout(Path(r["path"]), r.get("kind", "release"), r.get("label"))
-        if layout.setup_scripts:
-            return layout.setup_scripts
-    if default:
-        return None
-    for br in disc.discover().release_roots:
-        if br.setup_scripts:
-            return br.setup_scripts
+    """The target build's fl-setup-flapi-scripts (running build, else configured).
+    Never another build's copy: a dev build keeps its venv inside its own .app."""
+    layout, _ = cfgmod.target_layout()
+    if layout is not None:
+        return layout.setup_scripts
+    if cfgmod.load_config() is None:
+        return next((br.setup_scripts for br in disc.discover().release_roots
+                     if br.setup_scripts), None)
     return None
 
 

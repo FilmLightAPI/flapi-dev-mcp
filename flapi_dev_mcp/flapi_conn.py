@@ -306,6 +306,7 @@ def check_standalone_readiness(hostname: str | None = None, project_dir: str = "
     from flapi_dev_mcp import discovery as disc
     targeted = venvs.default_layout()
     targeted_v = targeted.version if targeted else None
+    _, following = cfgmod.target_layout()
     running = disc.detect_running_build() if is_local else None
     running_v = running.version if running else None
     # On macOS `.app` is the bundle; on Linux it's None and the build dir IS
@@ -316,6 +317,7 @@ def check_standalone_readiness(hostname: str | None = None, project_dir: str = "
         "running": running_v,
         "match": (running_v is None) or (running_v == targeted_v),
         "running_app": running_path,
+        "following": following,        # "running" build, or the "config" target
     }
 
     def _fl_service_cmd(layout: "disc.BuildRoot | None", action: str) -> str:
@@ -328,15 +330,13 @@ def check_standalone_readiness(hostname: str | None = None, project_dir: str = "
 
     ready = bool(env.get("ok") and flapid.get("connected"))
     remedies = []
-    if running_v and targeted_v and running_v != targeted_v:
-        restart_cmd = _fl_service_cmd(targeted, "restart")
-        remedies.append(
-            f"build mismatch: you chose target {targeted_v} (at init), but the live "
-            f"flapid is {running_v} ({running_path}). Two fixes — "
-            f"(1) make the server match your target (usual): restart flapid from your "
-            f"target build, `{restart_cmd}`, or launch that build's Baselight; "
-            f"(2) switch your target to the running build: `flapi-dev-mcp target-running`. "
-            f"Until then, docs/wheel are {targeted_v} but the server is {running_v}."
+    notes = []
+    configured = venvs._config().get("default_root")
+    if following == "running" and configured and not cfgmod.same_build(configured, running):
+        notes.append(
+            f"Using the running build {running.product} {running_v} for the wheel, docs and "
+            f"examples, not the configured target ({configured}). To make it the default "
+            f"when nothing is running, run `flapi-dev-mcp target-running`."
         )
     if not env.get("ok"):
         remedies.append("standalone venv / import flapi failed — see env detail")
@@ -368,6 +368,7 @@ def check_standalone_readiness(hostname: str | None = None, project_dir: str = "
 
     return {
         "ready": ready,
+        "notes": notes,
         "host": host,
         "venv": {"ok": env.get("ok"), "venv": env.get("venv"),
                  "import_flapi": env.get("import_flapi")},

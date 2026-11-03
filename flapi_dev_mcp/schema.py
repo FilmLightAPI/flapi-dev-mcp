@@ -17,23 +17,13 @@ from flapi_dev_mcp import discovery as disc
 
 
 def active_schema_path() -> Path | None:
-    """Resolve the schema.json for the configured default build root (live)."""
-    cfg = cfgmod.load_config()
-    roots = (cfg or {}).get("baselight_roots") or []
-    default = (cfg or {}).get("default_root")
-    # Only the target build: another build's schema would describe a different
-    # API version. Fall back to other builds only when no target is configured.
-    candidates = [r for r in roots if r.get("path") == default] if default else roots
-    for r in candidates:
-        layout = disc.resolve_layout(Path(r["path"]), r.get("kind", "release"), r.get("label"))
-        if layout.schema:
-            return layout.schema
-    if default:
-        return None
-    # No config? fall back to a live release root.
-    for br in disc.discover().release_roots:
-        if br.schema:
-            return br.schema
+    """The schema.json of the build the tools target (running, else configured).
+    Never another build's: its schema would describe a different API version."""
+    layout, _ = cfgmod.target_layout()
+    if layout is not None:
+        return layout.schema
+    if cfgmod.load_config() is None:          # not set up yet: any release build
+        return next((br.schema for br in disc.discover().release_roots if br.schema), None)
     return None
 
 
