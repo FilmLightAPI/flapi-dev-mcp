@@ -71,8 +71,9 @@ def test_status_and_environment_report_target(target):
     st = report.gather_status()
     assert st["default_version"] == target.version
     assert st["venv"] == str(target.venv)
-    env = server.flapi_check_environment()
-    assert env["data_root"]["active_venv"] == str(target.venv)
+    full = server.flapi_status()
+    assert full["venv"] == str(target.venv)
+    assert any(b["product"] for b in full["installed_builds"])
 
 
 @pytest.fixture

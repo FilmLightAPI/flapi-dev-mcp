@@ -1,18 +1,18 @@
-"""The MCP server.
+"""The MCP server: the tools a coding agent calls to write FLAPI scripts.
 
-Step 1 scaffold: starts over stdio and registers a single dummy tool so we can
-verify Claude Code connects and sees the tool. Real tools (environment, context,
-script) are added in later steps.
+Tools fall into four groups: setup info (flapi_status), FLAPI knowledge
+(get_api_surface, get_class_docs, search_examples), standalone scripts
+(readiness, connection, venv, deps) and App Scripts (readiness, venv, deps,
+reload, logs). Logic lives in the other modules; these are thin wrappers whose
+docstrings are what the agent reads when choosing a tool.
 """
 
 from __future__ import annotations
 
-import platform
 import sys
 
 from mcp.server.fastmcp import FastMCP
 
-from flapi_dev_mcp import __version__
 from flapi_dev_mcp import config as cfgmod
 from flapi_dev_mcp import discovery as disc
 
@@ -20,72 +20,23 @@ mcp = FastMCP("flapi-dev")
 
 
 @mcp.tool()
-def flapi_dev_ping() -> str:
-    """Connectivity check for the FLAPI Developer MCP.
-
-    Call this to confirm the flapi-dev MCP server is running and reachable.
-    Returns the server version and host platform. This is a scaffold tool;
-    the environment, context, and script tools are added in later build steps.
-    """
-    return (
-        f"flapi-dev-mcp {__version__} is alive — "
-        f"python {platform.python_version()} on {platform.system()} {platform.machine()}"
-    )
-
-
-@mcp.tool()
-def flapi_check_environment() -> dict:
-    """Report the discovered FLAPI environment on this machine (macOS + Linux, Python only).
-
-    Call this early when writing any FLAPI script — it tells you what Baselight is
-    installed, which venv FLAPI uses, and where the script directories live. Runs
-    live discovery (not just cached config). Returns the data root (active venv,
-    FLAPI Python, scripts/ and server-scripts/ dirs) and every release build root
-    with its resolved wheel / flapid / docs / schema / examples paths.
-    """
-    from flapi_dev_mcp import app_scripts
-    d = disc.discover()
-    dr = d.data_root
-    # Same resolution App Script readiness uses: ask the target build first.
-    active_venv = app_scripts.managed_venv()
-    return {
-        "platform": cfgmod._platform_name(),
-        "data_root": {
-            "exists": dr.exists,
-            "flapi_python_path": dr.flapi_python_path,
-            "python_minor": dr.python_minor,
-            "venvs": [v.name for v in dr.venvs],
-            "active_venv": str(active_venv) if active_venv else None,
-            "ui_scripts_dir": str(dr.ui_scripts_dir) if dr.ui_scripts_dir else None,
-            "server_scripts_dir": str(dr.server_scripts_dir) if dr.server_scripts_dir else None,
-        },
-        "release_roots": [_root_summary(br) for br in d.release_roots],
-        "config_written": cfgmod.CONFIG_PATH.exists(),
-    }
-
-
-@mcp.tool()
-def flapi_list_baselight_versions() -> list[dict]:
-    """List installed Baselight build roots and the FLAPI assets resolved from each.
-
-    Use this to choose which Baselight version to target. Returns, per root: the
-    version, kind, the .app bundle, and resolved paths for the filmlightapi wheel,
-    flapid, docs, JSON schema, and bundled examples.
-    """
-    return [_root_summary(br) for br in disc.discover().release_roots]
-
-
-@mcp.tool()
 def flapi_status() -> dict:
-    """Report the saved FLAPI config (the same data as the `status` CLI command).
+    """The user's FLAPI setup: target build, venvs, script folders, installed builds.
 
-    Use this to show the user their resolved setup in-chat: target Baselight
-    version, selected venv (and whether it's derived or overridden), docs / schema
-    / example paths, script directories, build roots, and context sources. If it
-    reports config_found=false, the user needs to run `flapi-dev-mcp init` first.
+    Call this when the user asks what's installed or how they're set up, or when
+    another tool reports a setup problem. Returns the target Baselight/Daylight
+    build and version, the build serving flapid right now, the App Script venv,
+    the scripts/ and server-scripts/ folders, every installed build with its
+    wheel, docs, schema and examples, and the context sources. If
+    config_found is false, the user needs to run `flapi-dev-mcp init` first.
+    Not needed before writing a script: the readiness tools cover that.
     """
     from flapi_dev_mcp import report
-    return report.gather_status()
+    status = report.gather_status()
+    running = disc.detect_running_build()
+    status["running_build"] = _root_summary(running) if running else None
+    status["installed_builds"] = [_root_summary(br) for br in disc.discover().release_roots]
+    return status
 
 
 @mcp.tool()
@@ -93,8 +44,10 @@ def get_api_surface() -> dict:
     """Summarize the whole FLAPI surface from the build's JSON schema.
 
     Returns every class with its method names and signals, plus the names of all
-    ValueTypes (settings structs) and Constants (enums). Call this to understand
-    what's possible before drilling into a class with get_class_docs.
+    ValueTypes (settings structs) and Constants (enums), for the build the user
+    has. Call this to see what's possible before drilling into a class with
+    get_class_docs. FLAPI changes between builds: trust this list over what you
+    remember. If a class or method isn't here, it doesn't exist in this build.
     """
     from flapi_dev_mcp import schema
     return schema.api_surface()
@@ -106,12 +59,13 @@ def search_examples(query: str, limit: int = 10) -> dict:
 
     Searches the cloned enhancements repo (App Scripts, FLAPI Tools, Shaders),
     the build's bundled examples, and any extra dirs the user registered, over
-    filenames and file contents. **Call this BEFORE writing any FLAPI script**
-    (and before reaching for external tools like ffmpeg) — there is very likely
-    an idiomatic example (e.g. exporting stills, rendering, metadata) that's
-    better to adapt than to reinvent. Then read the top hit in full. Returns
-    matching files with their source and matching-line snippets, ranked by
-    relevance. Searches: file/dir names, comments, function names, class usage.
+    filenames and file contents. **Call this BEFORE writing any FLAPI script**,
+    and before reaching for outside tools like ffmpeg: there is very likely an
+    idiomatic example (exporting stills, rendering, metadata, menu items) that's
+    better to adapt than to reinvent. Then read the top hit in full. Use a few
+    plain keywords for the task, e.g. "export still", "menu item scene",
+    "render queue", rather than a sentence. Returns matching files with their
+    source and matching-line snippets, ranked by relevance.
     """
     from flapi_dev_mcp import search
     return search.search_examples(query, limit=limit)
@@ -122,9 +76,11 @@ def get_class_docs(class_name: str) -> dict:
     """Full docs for one FLAPI class, from the build's JSON schema (ground truth).
 
     Returns each method with typed args, return type, and description, the class's
-    signals, and a ready-to-read `markdown` rendering. Call this when writing code
-    that uses a class (e.g. Scene, Application, ThumbnailManager) so signatures
-    match the targeted build exactly. If not found, suggests similar class names.
+    signals, and a ready-to-read `markdown` rendering. Call this for every class
+    your code uses (e.g. Scene, Application, QueueManager) so signatures match the
+    user's build exactly. A method that isn't listed doesn't exist in this build:
+    don't invent one, tell the user instead. If the class isn't found, suggests
+    similar names.
     """
     from flapi_dev_mcp import schema
     return schema.class_docs(class_name)
@@ -172,20 +128,6 @@ def install_app_dependencies(packages: list[str]) -> dict:
 
 
 @mcp.tool()
-def check_flapid(hostname: str = "", project_dir: str = "") -> dict:
-    """Check whether a Baselight FLAPI daemon (flapid) is reachable.
-
-    Opens a real FLAPI connection from the standalone venv (default host from
-    config, usually localhost) and lists jobs. Pass project_dir (the folder
-    where the script lives) so it uses that project's venv. Call this before
-    running a standalone script. If it fails, help the user start Baselight or
-    use the launch() pattern. Returns connection status, host, and jobs.
-    """
-    from flapi_dev_mcp import flapi_conn
-    return flapi_conn.check_flapid(hostname or None, project_dir)
-
-
-@mcp.tool()
 def flapi_connection(choice: str = "", host: str = "", port: int = 0,
                      username: str = "", project_dir: str = "") -> dict:
     """Pick & verify how a STANDALONE script connects to FLAPI. The connection target
@@ -194,10 +136,13 @@ def flapi_connection(choice: str = "", host: str = "", port: int = 0,
     Two-step use (an MCP tool can't ask the user, so YOU do the asking):
     1. Call with NO choice → returns a menu of connection types with LIVE status:
        - 'flapid'  : headless daemon :1984. Opens scenes by name; app need not run.
-                     No Application class. Local auto-auth; remote needs a token.
-       - 'app'     : the live running app :1985. Gives Application, the current OPEN
-                     scene, cursor/viewing state, live thumbnails. Needs Baselight up
-                     with a scene open. Idiom: Connection("localhost",1985,"<user>").
+                     Application is available, but there is no current scene
+                     (get_current_scene() returns None). Local auto-auth;
+                     remote needs a token.
+       - 'app'     : the live running app :1985. Gives the current OPEN scene and
+                     cursor/viewing state. Needs Baselight/Daylight running with a
+                     scene open. Idiom: app = conn.Application.get() (an instance,
+                     never flapi.Application.<method>()).
        - 'launch'  : spawn a private flapid from the build — fully headless.
        - 'remote'  : another machine's flapid/app; pass host(+port), needs a token.
        Present these to the user and ASK which fits the task (live/open scene & cursor
@@ -261,6 +206,7 @@ def install_dependencies(packages: list[str], project_dir: str = "") -> dict:
     that project's `<project_dir>/.venv` (the same venv setup_standalone_env /
     check_standalone_readiness use). Sets the venv up first if needed. For deps a
     standalone script imports beyond `flapi`. Never touches app-script venvs.
+    NOT for App Scripts: use install_app_dependencies for those.
     """
     from flapi_dev_mcp import venvs
     return venvs.install_dependencies(packages, project_dir)
@@ -298,11 +244,10 @@ def get_app_script_log(lines: int = 80) -> dict:
 def get_flapi_log(lines: int = 80) -> dict:
     """Tail the live flapid console log — SERVER-script output and flapid errors.
 
-    Reliably finds the current `<host>-flapid` log under /vol/.support/log. Use
-    after reloading a server script to see its output and any load tracebacks.
-    NOTE: this is flapid only (server scripts). UI/app-script output is NOT here —
-    for those, read the script's own self-log file (the readiness workflow makes
-    app scripts redirect stdout/stderr to ~/.flapi-dev-mcp/logs/<name>.log).
+    Finds the current `<host>-flapid` log under /vol/.support/log. Use after
+    reloading a server script to see its output and any load tracebacks, or when
+    a standalone script gets an error back from flapid. For UI/App Script output
+    use get_app_script_log instead.
     """
     from flapi_dev_mcp import app_scripts
     return app_scripts.get_flapi_log(lines)
@@ -310,6 +255,7 @@ def get_flapi_log(lines: int = 80) -> dict:
 
 def _root_summary(br: disc.BuildRoot) -> dict:
     return {
+        "product": br.product,
         "version": br.version,
         "kind": br.kind,
         "app": str(br.app) if br.app else None,
