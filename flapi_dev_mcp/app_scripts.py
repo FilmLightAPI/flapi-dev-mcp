@@ -223,14 +223,16 @@ def get_flapi_log(lines: int = 80) -> dict:
 
 
 def _gui_baselight_pid() -> str | None:
-    """PID of the running Baselight GUI desktop app (runs app scripts)."""
+    """PID of the running Baselight or Daylight GUI desktop app (runs app scripts)."""
     try:
         r = subprocess.run(["ps", "-Ao", "pid=,comm="], capture_output=True, text=True, timeout=8)
     except (OSError, subprocess.SubprocessError):
         return None
     for line in r.stdout.splitlines():
         parts = line.strip().split(None, 1)
-        if len(parts) == 2 and parts[1].endswith("/Contents/MacOS/Baselight"):
+        # Match `MacOS/<Product>` so a relative launch (`./MacOS/Daylight`
+        # from inside Contents/, common for dev builds) is found too.
+        if len(parts) == 2 and re.search(r"(^|/)MacOS/(Baselight|Daylight)$", parts[1]):
             return parts[0]
     return None
 
@@ -251,7 +253,7 @@ def get_app_script_log(lines: int = 80) -> dict:
     AND load tracebacks. Resolves FLTMPDIR from the running Baselight GUI."""
     pid = _gui_baselight_pid()
     if pid is None:
-        return {"ok": False, "error": "no running Baselight GUI found — app scripts (and "
+        return {"ok": False, "error": "no running Baselight/Daylight GUI found — app scripts (and "
                                        "their log) need the desktop app running"}
     td = _fltmpdir(pid)
     if not td:

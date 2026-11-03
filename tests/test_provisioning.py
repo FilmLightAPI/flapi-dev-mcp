@@ -153,3 +153,16 @@ def test_init_venv_label_says_where_it_came_from(fl_env, monkeypatch, capsys):
     out, _ = _run_init(fl_env, monkeypatch, capsys, [str(fl_env.dev_alias), "", ""])
     assert "derived" not in out
     assert f"app-script venv (from target build): {fl_env.dev_venv}" in out
+
+
+@pytest.mark.parametrize("cmd", [
+    "/Applications/Baselight/7.0.1/Baselight-7.0.1.app/Contents/MacOS/Baselight",
+    "/Volumes/SSD/x/Daylight-7.0.4.unknown.app/Contents/MacOS/Daylight",
+    "./MacOS/Daylight",                       # launched from inside Contents/
+])
+def test_finds_gui_for_app_script_log(cmd, monkeypatch):
+    import subprocess
+    ps = f" 111 /usr/sbin/cfprefsd\n 99 /x/Daylight.app/Contents/bin/fl-supervise\n 4242 {cmd}\n"
+    monkeypatch.setattr(app_scripts.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=ps, stderr=""))
+    assert app_scripts._gui_baselight_pid() == "4242"

@@ -19,4 +19,4 @@ flapi-dev-mcp = "flapi_dev_mcp.cli:main"
 include = ["flapi_dev_mcp*"]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "coverage>=7.4"]

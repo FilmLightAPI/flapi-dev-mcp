@@ -1,0 +1,9 @@
+# Coverage of the MCP server while agents drive it (evals/run.py --coverage).
+[run]
+source = flapi_dev_mcp
+parallel = true
+sigterm = true
+
+[report]
+show_missing = true
+skip_empty = true

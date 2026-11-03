@@ -1,7 +1,7 @@
 # FLAPI Developer MCP
 
-A local MCP server for any MCP-aware coding agent (Claude Code, Antigravity,
-OpenAI Codex, OpenCode, Cursor, Continue) that makes it an expert FLAPI
+A local MCP server for any MCP-aware coding agent (tested with Claude Code,
+Antigravity and OpenCode) that makes it an expert FLAPI
 (FilmLight Baselight / Daylight) developer. It discovers your local Baselight and Daylight
 installations, gathers FLAPI context, scaffolds scripts with the right
 boilerplate, and runs them to verify they work. Supports macOS and Linux

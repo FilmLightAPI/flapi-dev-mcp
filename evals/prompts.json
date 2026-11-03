@@ -1,18 +1,22 @@
 [
   {
     "id": "list-jobs",
-    "prompt": "What jobs and scenes are on my Baselight? Write me a small script that lists them.",
+    "prompt": "What jobs and scenes are on my Baselight? Write me a small script that lists them, and run it.",
     "catches": "basic routing",
     "expect": {
       "called_any": [
         "check_standalone_readiness",
         "flapi_connection"
       ]
+    },
+    "run": true,
+    "verify": {
+      "rerun_mentions": "flapi_eval"
     }
   },
   {
     "id": "export-stills",
-    "prompt": "Write a script that exports a JPEG still from the middle of every shot in a scene I pass on the command line.",
+    "prompt": "Write a script that exports a JPEG still from the middle of every shot in a scene I pass on the command line. Run it on {scene} and put the stills in ./stills.",
     "catches": "ffmpeg instead of FLAPI export, skipping examples (do_export_still or render_frame both OK)",
     "expect": {
       "examples_before_code": true,
@@ -23,38 +27,59 @@
         "do_export_still(",
         "render_frame("
       ]
+    },
+    "run": true,
+    "verify": {
+      "min_images": 3
     }
   },
   {
     "id": "render",
-    "prompt": "Write a script that submits a render of a scene to the render queue.",
+    "prompt": "Write a script that submits a render of a scene to the render queue, then run it on {scene}.",
     "catches": "QueueManager pattern",
     "expect": {
       "examples_before_code": true,
       "code_requires": [
         "QueueManager"
       ]
-    }
+    },
+    "run": true,
+    "verify": {}
   },
   {
     "id": "menu-item",
-    "prompt": "I want a menu item in Baselight that shows how many shots are selected.",
+    "prompt": "I want a menu item in Baselight that shows how many shots are selected. Install it so I can try it.",
     "catches": "App Script path",
     "expect": {
       "called_any": [
         "check_app_script_readiness"
       ],
       "examples_before_code": true
+    },
+    "app_script": true,
+    "verify": {
+      "app_script_loads": true
     }
   },
   {
     "id": "csv-marks",
-    "prompt": "I have a CSV of timecodes and comments. Write a script that adds them to a scene as timeline marks with the comments.",
+    "prompt": "marks.csv in this folder has timecodes and comments. Write a script that adds them to a scene as timeline marks with the comments, and run it on {scene}.",
     "catches": "Bradley's 1h45 case",
     "expect": {
       "examples_before_code": true,
       "called_any": [
         "get_class_docs"
+      ]
+    },
+    "files": {
+      "marks.csv": "timecode,comment\n00:00:00:12,Check the flare\n00:00:02:12,Sky looks noisy\n00:00:04:12,Fix the edge\n"
+    },
+    "run": true,
+    "verify": {
+      "marks": [
+        "Check the flare",
+        "Sky looks noisy",
+        "Fix the edge"
       ]
     }
   },
@@ -71,11 +96,15 @@
   },
   {
     "id": "thumb-sheet",
-    "prompt": "Make a contact sheet of thumbnails, one per shot, for a scene.",
+    "prompt": "Make a contact sheet of thumbnails, one per shot, for {scene}. Run it so I can look at the result.",
     "catches": "thumbnails headless only via ThumbnailManager.render_frame (build-dependent), else App Script",
     "expect": {
       "thumbnails_valid": true,
       "examples_before_code": true
+    },
+    "run": true,
+    "verify": {
+      "any_output": true
     }
   },
   {
