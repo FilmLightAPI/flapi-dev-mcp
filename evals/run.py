@@ -214,8 +214,12 @@ def score(case: dict, stream: str, code: dict, extra: dict | None = None) -> dic
     if ver.get("any_output"):
         checks["produced_output"] = bool(extra.get("images") or extra.get("outputs"))
     if "min_shown_images" in ver:
+        # Separate images, an HTML page of them, or one composite sheet built
+        # from stills exported through FLAPI.
+        shown = max(len(extra.get("images", [])), extra.get("html_imgs", 0))
+        composite = len(extra.get("images", [])) >= 1 and "do_export_still(" in src
         checks[f"shows>={ver['min_shown_images']}_images"] = (
-            max(len(extra.get("images", [])), extra.get("html_imgs", 0)) >= ver["min_shown_images"])
+            shown >= ver["min_shown_images"] or composite)
     if ver.get("app_script_loads"):
         load = extra.get("load", {})
         checks["deployed"] = bool(extra.get("deployed"))
@@ -264,7 +268,9 @@ def unofficial_calls(src: str) -> list[str]:
     flapi.Export.do_export_still) whose method isn't in the build's schema."""
     methods = _schema_methods()
     bad = set()
-    for cls, meth in re.findall(r"\b([A-Z]\w+)\.([a-z_]\w*)\s*\(", src):
+    # Only calls reached through flapi. or a connection count, so other
+    # libraries' classes with the same name (PIL's Image) aren't mistaken for FLAPI.
+    for cls, meth in re.findall(r"\b(?:flapi|conn\w*)\.([A-Z]\w+)\.([a-z_]\w*)\s*\(", src):
         if cls in methods and meth not in methods[cls]:
             bad.add(f"{cls}.{meth}")
     # Any class reached through a connection (conn.X.y) must exist at all, so

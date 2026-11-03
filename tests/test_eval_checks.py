@@ -43,3 +43,16 @@ def test_unofficial_call_fails_the_run():
     case = {"id": "x", "expect": {"code_optional": True}}
     res = run.score(case, "", {"a.py": "conn.FrameGrab.render_frames(s)"})
     assert res["checks"]["official_api_only"] is False and res["passed"] is False
+
+
+def test_other_libraries_same_class_name_not_flagged(monkeypatch):
+    monkeypatch.setitem(run._SCHEMA_METHODS, "Image", {"get_width"})
+    src = "from PIL import Image\nsheet = Image.new('RGB', (900, 300)); im = Image.open(p)"
+    assert run.unofficial_calls(src) == []
+
+
+def test_composite_contact_sheet_counts():
+    case = {"id": "t", "expect": {"code_optional": True}, "verify": {"min_shown_images": 3}}
+    src = {"a.py": "flapi.Export.do_export_still(qm, s, st)\nsheet.save('contact_sheet.png')"}
+    res = run.score(case, "", src, {"images": ["contact_sheet.png"]})
+    assert res["checks"]["shows>=3_images"] is True
