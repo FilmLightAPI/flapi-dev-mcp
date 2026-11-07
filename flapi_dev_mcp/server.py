@@ -270,7 +270,9 @@ def _root_summary(br: disc.BuildRoot) -> dict:
 
 
 def run() -> None:
-    """Start the MCP server over stdio."""
+    """Start the MCP server over stdio, pulling new examples in the background."""
+    from flapi_dev_mcp import repo
+    repo.pull_sources_in_background()
     mcp.run()
 
 

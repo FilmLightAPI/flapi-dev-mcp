@@ -140,6 +140,11 @@ uv tool install --reinstall git+https://github.com/FilmLightAPI/flapi-dev-mcp
 
 Restart your agent afterwards so it starts the new server.
 
+New examples in the [enhancements repo](https://github.com/FilmLightAPI/enhancements)
+arrive on their own: the server pulls it in the background each time your agent
+starts it. To pull right now, run `flapi-dev-mcp update`. To turn the automatic
+pull off, set `FLAPI_DEV_MCP_NO_PULL=1`.
+
 
 ## Contributing
 
